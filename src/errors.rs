@@ -1,8 +1,8 @@
 #[derive(Debug, PartialEq)]
 pub enum TLVError {
-    OverRun,
+    UnderRun,
     EndOfTLV,
+    InvalidTag,
     InvalidType,
-    InvalidLen,
     ParseError,
 }

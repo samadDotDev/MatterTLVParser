@@ -1,5 +1,5 @@
-use num::{FromPrimitive, ToPrimitive};
 use crate::errors::TLVError;
+use num::FromPrimitive;
 
 #[derive(Debug, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[repr(u8)]
@@ -31,12 +31,6 @@ pub enum TLVElementType {
     EndOfContainer = 0x18,
 }
 
-impl TLVElementType {
-    pub fn as_u8(&self) -> u8 {
-        ToPrimitive::to_u8(self).expect("TLVElementType failed to convert to primitive")
-    }
-}
-
 impl TryFrom<u8> for TLVElementType {
     type Error = TLVError;
 
@@ -49,66 +43,53 @@ impl TryFrom<u8> for TLVElementType {
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVSignedInteger {
-    Int8 = 0x00,
-    Int16 = 0x01,
-    Int32 = 0x02,
-    Int64 = 0x03,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
 }
 
 #[derive(PartialEq, Debug)]
 #[repr(u8)]
 pub enum TLVUnsignedInteger {
-    UInt8 = 0x04,
-    UInt16 = 0x05,
-    UInt32 = 0x06,
-    UInt64 = 0x07,
-}
-
-#[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVBoolean {
-    BooleanFalse = 0x08,
-    BooleanTrue = 0x09,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
 }
 
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVFloatingPoint {
-    FloatingPointNumber32 = 0x0A,
-    FloatingPointNumber64 = 0x0B,
-}
-
-#[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVNull {
-    Null = 0x14,
+    FloatingPointNumber32,
+    FloatingPointNumber64,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum TLVPredeterminedLengthType {
     SignedInteger(TLVSignedInteger),
     UnsignedInteger(TLVUnsignedInteger),
-    Boolean(TLVBoolean),
     FloatingPointNumber(TLVFloatingPoint),
-    Null(TLVNull), // [E0658]: custom discriminant values are not allowed in enums with tuple or struct variants
+    Boolean(bool), // Value inferred during Type parsing
+    Null,
 }
 
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVUTF8StrLenBytes {
-    UTF8String1ByteLength = 0x0C,
-    UTF8String2ByteLength = 0x0D,
-    UTF8String4ByteLength = 0x0E,
-    UTF8String8ByteLength = 0x0F,
+    UTF8String1ByteLength,
+    UTF8String2ByteLength,
+    UTF8String4ByteLength,
+    UTF8String8ByteLength,
 }
 
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVByteStrLenBytes {
-    ByteString1ByteLength = 0x10,
-    ByteString2ByteLength = 0x11,
-    ByteString4ByteLength = 0x12,
-    ByteString8ByteLength = 0x13,
+    ByteString1ByteLength,
+    ByteString2ByteLength,
+    ByteString4ByteLength,
+    ByteString8ByteLength,
 }
 
 #[derive(Debug, PartialEq)]
@@ -168,16 +149,12 @@ impl TryFrom<TLVElementType> for TLVType {
                 TLVPredeterminedLengthType::UnsignedInteger(TLVUnsignedInteger::UInt64),
             )),
 
-            TLVElementType::BooleanFalse => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                    TLVPredeterminedLengthType::Boolean(TLVBoolean::BooleanFalse),
-                ))
-            }
-            TLVElementType::BooleanTrue => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                    TLVPredeterminedLengthType::Boolean(TLVBoolean::BooleanTrue),
-                ))
-            }
+            TLVElementType::BooleanFalse => TLVType::Primitive(
+                TLVPrimitiveLengthType::Predetermined(TLVPredeterminedLengthType::Boolean(false)),
+            ),
+            TLVElementType::BooleanTrue => TLVType::Primitive(
+                TLVPrimitiveLengthType::Predetermined(TLVPredeterminedLengthType::Boolean(true)),
+            ),
 
             TLVElementType::FloatingPointNumber32 => {
                 TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
@@ -237,7 +214,7 @@ impl TryFrom<TLVElementType> for TLVType {
             }
 
             TLVElementType::Null => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::Null(TLVNull::Null),
+                TLVPredeterminedLengthType::Null,
             )),
             TLVElementType::Structure => TLVType::Container(TLVContainerType::Structure),
             TLVElementType::Array => TLVType::Container(TLVContainerType::Array),
@@ -268,69 +245,58 @@ impl TLVPredeterminedLengthType {
                 TLVFloatingPoint::FloatingPointNumber32 => 4,
                 TLVFloatingPoint::FloatingPointNumber64 => 8,
             },
-            TLVPredeterminedLengthType::Null(_) => 0,
+            TLVPredeterminedLengthType::Null => 0,
+        }
+    }
+}
+
+impl TLVByteStrLenBytes {
+    pub(crate) fn length_field_size(&self) -> TLVFieldSize {
+        match self {
+            TLVByteStrLenBytes::ByteString1ByteLength => TLVFieldSize::OneByte,
+            TLVByteStrLenBytes::ByteString2ByteLength => TLVFieldSize::TwoBytes,
+            TLVByteStrLenBytes::ByteString4ByteLength => TLVFieldSize::FourBytes,
+            TLVByteStrLenBytes::ByteString8ByteLength => TLVFieldSize::EightBytes,
+        }
+    }
+}
+
+impl TLVUTF8StrLenBytes {
+    pub(crate) fn length_field_size(&self) -> TLVFieldSize {
+        match self {
+            TLVUTF8StrLenBytes::UTF8String1ByteLength => TLVFieldSize::OneByte,
+            TLVUTF8StrLenBytes::UTF8String2ByteLength => TLVFieldSize::TwoBytes,
+            TLVUTF8StrLenBytes::UTF8String4ByteLength => TLVFieldSize::FourBytes,
+            TLVUTF8StrLenBytes::UTF8String8ByteLength => TLVFieldSize::EightBytes,
         }
     }
 }
 
 impl TLVSpecifiedLengthType {
-    pub(crate) fn length_octets_count(&self) -> usize {
+    pub(crate) fn length_field_size(&self) -> TLVFieldSize {
         match self {
-            TLVSpecifiedLengthType::UTF8String(len_bytes) => match len_bytes {
-                TLVUTF8StrLenBytes::UTF8String1ByteLength => 1,
-                TLVUTF8StrLenBytes::UTF8String2ByteLength => 2,
-                TLVUTF8StrLenBytes::UTF8String4ByteLength => 4,
-                TLVUTF8StrLenBytes::UTF8String8ByteLength => 8,
-            },
-            TLVSpecifiedLengthType::ByteString(len_bytes) => match len_bytes {
-                TLVByteStrLenBytes::ByteString1ByteLength => 1,
-                TLVByteStrLenBytes::ByteString2ByteLength => 2,
-                TLVByteStrLenBytes::ByteString4ByteLength => 4,
-                TLVByteStrLenBytes::ByteString8ByteLength => 8,
-            },
+            TLVSpecifiedLengthType::UTF8String(utf8_string) => utf8_string.length_field_size(),
+            TLVSpecifiedLengthType::ByteString(byte_string) => byte_string.length_field_size(),
         }
     }
 }
 
-#[derive(Debug)]
-#[repr(u8)]
-pub enum TLVBitMask {
-    PrimitiveType = 0x1C,
-    FieldSize = 0x03,
-}
-
-// Bit masked value of element type
-// Prefer to use these primitives instead of field size defined types
-#[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVPrimitiveType {
-    SignedInteger = 0x00,
-    UnsignedInteger = 0x04,
-    FloatingPointNumber = 0x08,
-    Null = 0x14,
-    UTF8String = 0xC,
-    ByteString = 0x10,
-}
-
-#[derive(Debug, PartialEq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+#[derive(Clone, Debug, PartialEq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[repr(u8)]
 pub enum TLVFieldSize {
     OneByte = 0,
-    TwoByte = 1,
-    FourByte = 2,
-    EightByte = 3,
+    TwoBytes = 1,
+    FourBytes = 2,
+    EightBytes = 3,
 }
 
 impl TLVFieldSize {
-    pub fn as_u8(&self) -> u8 {
-        ToPrimitive::to_u8(self).expect("TLVFieldSize failed to convert to primitive")
-    }
     pub fn len(&self) -> usize {
         match self {
             TLVFieldSize::OneByte => 1,
-            TLVFieldSize::TwoByte => 2,
-            TLVFieldSize::FourByte => 4,
-            TLVFieldSize::EightByte => 8,
+            TLVFieldSize::TwoBytes => 2,
+            TLVFieldSize::FourBytes => 4,
+            TLVFieldSize::EightBytes => 8,
         }
     }
 }
@@ -338,8 +304,8 @@ impl TLVFieldSize {
 impl TryFrom<u8> for TLVFieldSize {
     type Error = TLVError;
 
-    fn try_from(element_type: u8) -> Result<Self, Self::Error> {
-        let element_type = Self::from_u8(element_type).ok_or(TLVError::InvalidType)?;
-        Ok(element_type)
+    fn try_from(field_size: u8) -> Result<Self, Self::Error> {
+        let field_size = Self::from_u8(field_size).ok_or(TLVError::InvalidType)?;
+        Ok(field_size)
     }
 }
