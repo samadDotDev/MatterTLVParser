@@ -1,13 +1,5 @@
 use num::{FromPrimitive, ToPrimitive};
-
-#[derive(Debug, PartialEq)]
-pub enum TLVError {
-    OverRun,
-    EndOfTLV,
-    InvalidType,
-    InvalidLen,
-    ParseError,
-}
+use crate::errors::TLVError;
 
 #[derive(Debug, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[repr(u8)]

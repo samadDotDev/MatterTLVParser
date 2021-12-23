@@ -1,7 +1,5 @@
-#![allow(dead_code)] // Temporarily disable unused code warnings for the binary
-
 use crate::types::{
-    TLVBitMask, TLVBoolean, TLVElementType, TLVError, TLVFieldSize, TLVFloatingPoint, TLVNull,
+    TLVBitMask, TLVBoolean, TLVElementType, TLVFieldSize, TLVFloatingPoint, TLVNull,
     TLVPrimitiveLengthType, TLVPrimitiveType, TLVSignedInteger, TLVType, TLVUnsignedInteger,
 };
 use log::error;
@@ -12,9 +10,7 @@ use nom::number::complete::{
 };
 use nom::sequence::tuple;
 use nom::{Finish, IResult};
-
-mod tags;
-mod types;
+use crate::errors::TLVError;
 
 struct TLVReader {
     payload: Vec<u8>,
@@ -339,10 +335,6 @@ impl TLVReader {
             Err(TLVError::InvalidType)
         }
     }
-}
-
-fn main() {
-    print!("Run tests instead")
 }
 
 #[cfg(test)]
