@@ -1,13 +1,17 @@
 #![allow(dead_code)] // Temporarily disable unused code warnings for the binary
 
-use crate::types::TLVSignedInteger;
+use crate::types::{
+    TLVBoolean, TLVElementType, TLVError, TLVFloatingPoint, TLVNull, TLVPrimitiveLengthType,
+    TLVSignedInteger, TLVType, TLVUnsignedInteger,
+};
 use log::error;
 use nom::bits::{bits, complete::take};
 use nom::error::Error;
-use nom::number::complete::{le_i16, le_i32, le_i64, le_i8, le_u16, le_u32, le_u64, le_u8};
+use nom::number::complete::{
+    le_f32, le_f64, le_i16, le_i32, le_i64, le_i8, le_u16, le_u32, le_u64, le_u8,
+};
 use nom::sequence::tuple;
 use nom::{Finish, IResult};
-use types::{TLVElementType, TLVError, TLVPrimitiveLengthType, TLVType, TLVUnsignedInteger};
 
 mod tags;
 mod types;
@@ -240,6 +244,52 @@ impl TLVReader {
             Err(TLVError::InvalidType)
         }
     }
+
+    fn read_f32(&self) -> Result<f32, TLVError> {
+        let (remaining_bytes, (_, element_type_byte)) = self.parse_control_byte()?;
+        if element_type_byte == TLVFloatingPoint::FloatingPointNumber32 as u8 {
+            let (_, value) = le_f32::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
+                error!("Failed to parse f32 {}", e);
+                TLVError::ParseError
+            })?;
+            Ok(value)
+        } else {
+            Err(TLVError::InvalidType)
+        }
+    }
+
+    fn read_f64(&self) -> Result<f64, TLVError> {
+        let (remaining_bytes, (_, element_type_byte)) = self.parse_control_byte()?;
+        if element_type_byte == TLVFloatingPoint::FloatingPointNumber64 as u8 {
+            let (_, value) = le_f64::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
+                error!("Failed to parse f64 {}", e);
+                TLVError::ParseError
+            })?;
+            Ok(value)
+        } else {
+            Err(TLVError::InvalidType)
+        }
+    }
+
+    fn read_bool(&self) -> Result<bool, TLVError> {
+        let (_, (_, element_type_byte)) = self.parse_control_byte()?;
+        if element_type_byte == TLVBoolean::BooleanTrue as u8 {
+            Ok(true)
+        } else if element_type_byte == TLVBoolean::BooleanFalse as u8 {
+            Ok(false)
+        } else {
+            Err(TLVError::InvalidType)
+        }
+    }
+
+    fn read_null(&self) -> Result<(), TLVError> {
+        let (_, (_, element_type_byte)) = self.parse_control_byte()?;
+        if element_type_byte == TLVNull::Null as u8 {
+            Ok(())
+        } else {
+            Err(TLVError::InvalidType)
+        }
+    }
 }
 
 fn main() {
@@ -255,7 +305,8 @@ mod tests {
 
     #[test]
     fn test_parse_control_byte() {
-        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00]; // Unsigned Integer, 8-octet, value 40000000000
+        // Unsigned Integer, 8-octet, value 40000000000
+        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00];
         let tlv_reader = TLVReader::new(test_bytes);
         let (remaining_bytes, (tag_control, element_type)) = tlv_reader
             .parse_control_byte()
@@ -270,7 +321,8 @@ mod tests {
 
     #[test]
     fn test_parse_control_byte_with_field_size() {
-        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00]; // Unsigned Integer, 8-octet, value 40000000000
+        // Unsigned Integer, 8-octet, value 40000000000
+        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00];
         let tlv_reader = TLVReader::new(test_bytes);
         let (remaining_bytes, (tag_control, tlv_type, field_size)) = tlv_reader
             .parse_control_byte_with_field_size()
@@ -304,7 +356,8 @@ mod tests {
 
     #[test]
     fn test_read_u32() {
-        let test_bytes = &[0x06, 0x23, 0x90, 0x2f, 0x0E]; // Unsigned Integer, 4-octet, value 237998115
+        // Unsigned Integer, 4-octet, value 237998115
+        let test_bytes = &[0x06, 0x23, 0x90, 0x2f, 0x0E];
         let tlv_reader = TLVReader::new(test_bytes);
         assert_eq!(
             tlv_reader.read_u32().expect("Failed to read u32"),
@@ -314,7 +367,8 @@ mod tests {
 
     #[test]
     fn test_read_u64() {
-        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00]; // Unsigned Integer, 8-octet, value 40000000000
+        // Unsigned Integer, 8-octet, value 40000000000
+        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00];
         let tlv_reader = TLVReader::new(test_bytes);
         assert_eq!(
             tlv_reader.read_u64().expect("Failed to read u64"),
@@ -338,7 +392,8 @@ mod tests {
 
     #[test]
     fn test_read_i32() {
-        let test_bytes = &[0x02, 0x23, 0x90, 0x2f, 0x0E]; // Signed Integer, 4-octet, value 237998115
+        // Signed Integer, 4-octet, value 237998115
+        let test_bytes = &[0x02, 0x23, 0x90, 0x2f, 0x0E];
         let tlv_reader = TLVReader::new(test_bytes);
         assert_eq!(
             tlv_reader.read_i32().expect("Failed to read i32"),
@@ -348,7 +403,8 @@ mod tests {
 
     #[test]
     fn test_read_i64() {
-        let test_bytes = &[0x03, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00]; // Signed Integer, 8-octet, value 40000000000
+        // Signed Integer, 8-octet, value 40000000000
+        let test_bytes = &[0x03, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00];
         let tlv_reader = TLVReader::new(test_bytes);
         assert_eq!(
             tlv_reader.read_i64().expect("Failed to read i64"),
@@ -357,12 +413,79 @@ mod tests {
     }
 
     #[test]
+    fn test_read_f32() {
+        // Single precision floating point 17.9
+        let test_bytes = &[0x0a, 0x33, 0x33, 0x8f, 0x41];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(tlv_reader.read_f32().expect("Failed to read f32"), 17.9);
+
+        // Single precision floating point infinity (∞)
+        let test_bytes = &[0x0a, 0x00, 0x00, 0x80, 0x7f];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader.read_f32().expect("Failed to read f32"),
+            f32::INFINITY
+        );
+
+        // Single precision floating point negative infinity (-∞)
+        let test_bytes = &[0x0a, 0x00, 0x00, 0x80, 0xff];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader.read_f32().expect("Failed to read f32"),
+            f32::NEG_INFINITY
+        );
+    }
+
+    #[test]
+    fn test_read_f64() {
+        // Double precision floating point 17.9
+        let test_bytes = &[0x0b, 0x66, 0x66, 0x66, 0x66, 0x66, 0xe6, 0x31, 0x40];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(tlv_reader.read_f64().expect("Failed to read f64"), 17.9);
+
+        // Double precision floating point infinity (∞)
+        let test_bytes = &[0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x7f];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader.read_f64().expect("Failed to read f64"),
+            f64::INFINITY
+        );
+
+        // Double precision floating point negative infinity (-∞)
+        let test_bytes = &[0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xff];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader.read_f64().expect("Failed to read f64"),
+            f64::NEG_INFINITY
+        );
+    }
+
+    #[test]
+    fn test_read_bool() {
+        let test_bytes = &[0x08]; // Boolean false
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert!(!tlv_reader.read_bool().expect("Failed to read bool"));
+
+        let test_bytes = &[0x09]; // Boolean true
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert!(tlv_reader.read_bool().expect("Failed to read bool"));
+    }
+
+    #[test]
+    fn test_read_null() {
+        let test_bytes = &[0x14]; // Null
+        let tlv_reader = TLVReader::new(test_bytes);
+        tlv_reader.read_null().expect("Failed to read null");
+    }
+
+    #[test]
     fn test_read_sequence() {
         // Unsigned Integer, 8-octet, value 40000000000
         // + Unsigned Integer, 1-octet, value 255
         // + Signed Integer, 4-octet, value -904534
         let test_bytes = &[
-            0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00, 0x04, 0xFF, 0x02, 0xAA, 0x32, 0xF2, 0xFF
+            0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00, 0x04, 0xFF, 0x02, 0xAA, 0x32,
+            0xF2, 0xFF,
         ];
         let mut tlv_reader = TLVReader::new(test_bytes);
         assert_eq!(

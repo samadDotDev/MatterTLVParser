@@ -54,7 +54,7 @@ impl TryFrom<u8> for TLVElementType {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVSignedInteger {
     Int8 = 0x00,
@@ -72,27 +72,27 @@ pub enum TLVUnsignedInteger {
     UInt64 = 0x07,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVBoolean {
     BooleanFalse = 0x08,
     BooleanTrue = 0x09,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVFloatingPoint {
     FloatingPointNumber32 = 0x0A,
     FloatingPointNumber64 = 0x0B,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVNull {
     Null = 0x14,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum TLVPredeterminedLengthType {
     SignedInteger(TLVSignedInteger),
     UnsignedInteger(TLVUnsignedInteger),
@@ -101,7 +101,7 @@ pub enum TLVPredeterminedLengthType {
     Null(TLVNull), // [E0658]: custom discriminant values are not allowed in enums with tuple or struct variants
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVUTF8StrLenBytes {
     UTF8String1ByteLength = 0x0C,
@@ -110,7 +110,7 @@ pub enum TLVUTF8StrLenBytes {
     UTF8String8ByteLength = 0x0F,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVByteStrLenBytes {
     ByteString1ByteLength = 0x10,
@@ -119,19 +119,19 @@ pub enum TLVByteStrLenBytes {
     ByteString8ByteLength = 0x13,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum TLVSpecifiedLengthType {
     UTF8String(TLVUTF8StrLenBytes),
     ByteString(TLVByteStrLenBytes),
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum TLVPrimitiveLengthType {
     Predetermined(TLVPredeterminedLengthType),
     Specified(TLVSpecifiedLengthType),
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TLVContainerType {
     Structure = 0x15,
@@ -139,7 +139,7 @@ pub enum TLVContainerType {
     List = 0x17,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum TLVType {
     Primitive(TLVPrimitiveLengthType),
     Container(TLVContainerType),
