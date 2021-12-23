@@ -1,9 +1,12 @@
 use crate::errors::TLVError;
+use crate::util;
 use num::FromPrimitive;
+
+pub const CONTROL_BYTE_SHIFT: u8 = 5;
 
 #[derive(Debug, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[repr(u8)]
-pub enum TLVTagControl {
+pub enum TagControl {
     Anonymous = 0x00,
     ContextSpecific = 0x20,
     CommonProfile2Bytes = 0x40,
@@ -14,7 +17,7 @@ pub enum TLVTagControl {
     FullyQualified8Bytes = 0xE0,
 }
 
-impl TryFrom<u8> for TLVTagControl {
+impl TryFrom<u8> for TagControl {
     type Error = TLVError;
 
     fn try_from(tag_control_byte: u8) -> Result<Self, Self::Error> {
@@ -85,4 +88,73 @@ impl TLVTag {
             },
         }
     }
+}
+
+pub fn parse_tag(
+    tag_control_byte: u8,
+    remaining_bytes: &[u8],
+) -> Result<(&[u8], TLVTag), TLVError> {
+    let tag_control = TagControl::try_from(tag_control_byte)?;
+    let (remaining_bytes, tlv_tag) = match tag_control {
+        TagControl::Anonymous => (remaining_bytes, TLVTag::Anonymous),
+        TagControl::ContextSpecific => {
+            let (remaining_bytes, tag_number) = util::parse_u8(remaining_bytes)?;
+            (remaining_bytes, TLVTag::ContextSpecific(tag_number))
+        }
+        TagControl::CommonProfile2Bytes => {
+            let (remaining_bytes, tag_number) = util::parse_u16(remaining_bytes)?;
+            (
+                remaining_bytes,
+                TLVTag::CommonProfile(CommonProfileLength::TwoOctets { tag_number }),
+            )
+        }
+        TagControl::CommonProfile4Bytes => {
+            let (remaining_bytes, tag_number) = util::parse_u32(remaining_bytes)?;
+            (
+                remaining_bytes,
+                TLVTag::CommonProfile(CommonProfileLength::FourOctets { tag_number }),
+            )
+        }
+        TagControl::ImplicitProfile2Bytes => {
+            let (remaining_bytes, tag_number) = util::parse_u16(remaining_bytes)?;
+            (
+                remaining_bytes,
+                TLVTag::ImplicitProfile(ImplicitProfileLength::TwoOctets { tag_number }),
+            )
+        }
+        TagControl::ImplicitProfile4Bytes => {
+            let (remaining_bytes, tag_number) = util::parse_u32(remaining_bytes)?;
+            (
+                remaining_bytes,
+                TLVTag::ImplicitProfile(ImplicitProfileLength::FourOctets { tag_number }),
+            )
+        }
+        TagControl::FullyQualified6Bytes => {
+            let (remaining_bytes, vendor_id) = util::parse_u16(remaining_bytes)?;
+            let (remaining_bytes, profile_number) = util::parse_u16(remaining_bytes)?;
+            let (remaining_bytes, tag_number) = util::parse_u16(remaining_bytes)?;
+            (
+                remaining_bytes,
+                TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::SixOctets {
+                    vendor_id,
+                    profile_number,
+                    tag_number,
+                }),
+            )
+        }
+        TagControl::FullyQualified8Bytes => {
+            let (remaining_bytes, vendor_id) = util::parse_u16(remaining_bytes)?;
+            let (remaining_bytes, profile_number) = util::parse_u16(remaining_bytes)?;
+            let (remaining_bytes, tag_number) = util::parse_u32(remaining_bytes)?;
+            (
+                remaining_bytes,
+                TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::EightOctets {
+                    vendor_id,
+                    profile_number,
+                    tag_number,
+                }),
+            )
+        }
+    };
+    Ok((remaining_bytes, tlv_tag))
 }

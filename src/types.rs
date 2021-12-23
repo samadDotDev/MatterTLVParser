@@ -1,9 +1,10 @@
 use crate::errors::TLVError;
+use crate::util;
 use num::FromPrimitive;
 
 #[derive(Debug, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[repr(u8)]
-pub enum TLVElementType {
+pub enum ElementType {
     Int8 = 0x00,
     Int16 = 0x01,
     Int32 = 0x02,
@@ -31,7 +32,7 @@ pub enum TLVElementType {
     EndOfContainer = 0x18,
 }
 
-impl TryFrom<u8> for TLVElementType {
+impl TryFrom<u8> for ElementType {
     type Error = TLVError;
 
     fn try_from(element_type: u8) -> Result<Self, Self::Error> {
@@ -41,8 +42,7 @@ impl TryFrom<u8> for TLVElementType {
 }
 
 #[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVSignedInteger {
+pub enum SignedInteger {
     Int8,
     Int16,
     Int32,
@@ -50,8 +50,7 @@ pub enum TLVSignedInteger {
 }
 
 #[derive(PartialEq, Debug)]
-#[repr(u8)]
-pub enum TLVUnsignedInteger {
+pub enum UnsignedInteger {
     UInt8,
     UInt16,
     UInt32,
@@ -59,24 +58,22 @@ pub enum TLVUnsignedInteger {
 }
 
 #[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVFloatingPoint {
+pub enum FloatingPoint {
     FloatingPointNumber32,
     FloatingPointNumber64,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum TLVPredeterminedLengthType {
-    SignedInteger(TLVSignedInteger),
-    UnsignedInteger(TLVUnsignedInteger),
-    FloatingPointNumber(TLVFloatingPoint),
+pub enum PredeterminedLenPrimitive {
+    SignedInteger(SignedInteger),
+    UnsignedInteger(UnsignedInteger),
+    FloatingPointNumber(FloatingPoint),
     Boolean(bool), // Value inferred during Type parsing
     Null,
 }
 
 #[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVUTF8StrLenBytes {
+pub enum UTF8StrLenBytes {
     UTF8String1ByteLength,
     UTF8String2ByteLength,
     UTF8String4ByteLength,
@@ -84,8 +81,7 @@ pub enum TLVUTF8StrLenBytes {
 }
 
 #[derive(Debug, PartialEq)]
-#[repr(u8)]
-pub enum TLVByteStrLenBytes {
+pub enum ByteStrLenBytes {
     ByteString1ByteLength,
     ByteString2ByteLength,
     ByteString4ByteLength,
@@ -93,20 +89,20 @@ pub enum TLVByteStrLenBytes {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum TLVSpecifiedLengthType {
-    UTF8String(TLVUTF8StrLenBytes),
-    ByteString(TLVByteStrLenBytes),
+pub enum SpecifiedLenPrimitive {
+    UTF8String(UTF8StrLenBytes),
+    ByteString(ByteStrLenBytes),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum TLVPrimitiveLengthType {
-    Predetermined(TLVPredeterminedLengthType),
-    Specified(TLVSpecifiedLengthType),
+pub enum PrimitiveLengthType {
+    Predetermined(PredeterminedLenPrimitive),
+    Specified(SpecifiedLenPrimitive),
 }
 
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
-pub enum TLVContainerType {
+pub enum ContainerType {
     Structure = 0x15,
     Array = 0x16,
     List = 0x17,
@@ -114,169 +110,166 @@ pub enum TLVContainerType {
 
 #[derive(Debug, PartialEq)]
 pub enum TLVType {
-    Primitive(TLVPrimitiveLengthType),
-    Container(TLVContainerType),
+    Primitive(PrimitiveLengthType),
+    Container(ContainerType),
 }
 
-impl TryFrom<TLVElementType> for TLVType {
+impl TryFrom<ElementType> for TLVType {
     type Error = TLVError;
 
-    fn try_from(element_type: TLVElementType) -> Result<Self, Self::Error> {
+    fn try_from(element_type: ElementType) -> Result<Self, Self::Error> {
         Ok(match element_type {
-            TLVElementType::Int8 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::SignedInteger(TLVSignedInteger::Int8),
+            ElementType::Int8 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::SignedInteger(SignedInteger::Int8),
             )),
-            TLVElementType::Int16 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::SignedInteger(TLVSignedInteger::Int16),
+            ElementType::Int16 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::SignedInteger(SignedInteger::Int16),
             )),
-            TLVElementType::Int32 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::SignedInteger(TLVSignedInteger::Int32),
+            ElementType::Int32 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::SignedInteger(SignedInteger::Int32),
             )),
-            TLVElementType::Int64 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::SignedInteger(TLVSignedInteger::Int64),
-            )),
-
-            TLVElementType::UInt8 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::UnsignedInteger(TLVUnsignedInteger::UInt8),
-            )),
-            TLVElementType::UInt16 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::UnsignedInteger(TLVUnsignedInteger::UInt16),
-            )),
-            TLVElementType::UInt32 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::UnsignedInteger(TLVUnsignedInteger::UInt32),
-            )),
-            TLVElementType::UInt64 => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::UnsignedInteger(TLVUnsignedInteger::UInt64),
+            ElementType::Int64 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::SignedInteger(SignedInteger::Int64),
             )),
 
-            TLVElementType::BooleanFalse => TLVType::Primitive(
-                TLVPrimitiveLengthType::Predetermined(TLVPredeterminedLengthType::Boolean(false)),
+            ElementType::UInt8 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::UnsignedInteger(UnsignedInteger::UInt8),
+            )),
+            ElementType::UInt16 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::UnsignedInteger(UnsignedInteger::UInt16),
+            )),
+            ElementType::UInt32 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::UnsignedInteger(UnsignedInteger::UInt32),
+            )),
+            ElementType::UInt64 => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::UnsignedInteger(UnsignedInteger::UInt64),
+            )),
+
+            ElementType::BooleanFalse => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::Boolean(false),
+            )),
+            ElementType::BooleanTrue => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::Boolean(true),
+            )),
+
+            ElementType::FloatingPointNumber32 => TLVType::Primitive(
+                PrimitiveLengthType::Predetermined(PredeterminedLenPrimitive::FloatingPointNumber(
+                    FloatingPoint::FloatingPointNumber32,
+                )),
             ),
-            TLVElementType::BooleanTrue => TLVType::Primitive(
-                TLVPrimitiveLengthType::Predetermined(TLVPredeterminedLengthType::Boolean(true)),
+            ElementType::FloatingPointNumber64 => TLVType::Primitive(
+                PrimitiveLengthType::Predetermined(PredeterminedLenPrimitive::FloatingPointNumber(
+                    FloatingPoint::FloatingPointNumber64,
+                )),
             ),
 
-            TLVElementType::FloatingPointNumber32 => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                    TLVPredeterminedLengthType::FloatingPointNumber(
-                        TLVFloatingPoint::FloatingPointNumber32,
-                    ),
+            ElementType::UTF8String1ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String1ByteLength),
                 ))
             }
-            TLVElementType::FloatingPointNumber64 => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                    TLVPredeterminedLengthType::FloatingPointNumber(
-                        TLVFloatingPoint::FloatingPointNumber64,
-                    ),
+            ElementType::UTF8String2ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String2ByteLength),
                 ))
             }
-
-            TLVElementType::UTF8String1ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::UTF8String(TLVUTF8StrLenBytes::UTF8String1ByteLength),
+            ElementType::UTF8String4ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String4ByteLength),
                 ))
             }
-            TLVElementType::UTF8String2ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::UTF8String(TLVUTF8StrLenBytes::UTF8String2ByteLength),
-                ))
-            }
-            TLVElementType::UTF8String4ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::UTF8String(TLVUTF8StrLenBytes::UTF8String4ByteLength),
-                ))
-            }
-            TLVElementType::UTF8String8ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::UTF8String(TLVUTF8StrLenBytes::UTF8String8ByteLength),
+            ElementType::UTF8String8ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String8ByteLength),
                 ))
             }
 
-            TLVElementType::ByteString1ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::ByteString(TLVByteStrLenBytes::ByteString1ByteLength),
+            ElementType::ByteString1ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString1ByteLength),
                 ))
             }
-            TLVElementType::ByteString2ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::ByteString(TLVByteStrLenBytes::ByteString2ByteLength),
+            ElementType::ByteString2ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString2ByteLength),
                 ))
             }
-            TLVElementType::ByteString4ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::ByteString(TLVByteStrLenBytes::ByteString4ByteLength),
+            ElementType::ByteString4ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString4ByteLength),
                 ))
             }
-            TLVElementType::ByteString8ByteLength => {
-                TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                    TLVSpecifiedLengthType::ByteString(TLVByteStrLenBytes::ByteString8ByteLength),
+            ElementType::ByteString8ByteLength => {
+                TLVType::Primitive(PrimitiveLengthType::Specified(
+                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString8ByteLength),
                 ))
             }
 
-            TLVElementType::Null => TLVType::Primitive(TLVPrimitiveLengthType::Predetermined(
-                TLVPredeterminedLengthType::Null,
+            ElementType::Null => TLVType::Primitive(PrimitiveLengthType::Predetermined(
+                PredeterminedLenPrimitive::Null,
             )),
-            TLVElementType::Structure => TLVType::Container(TLVContainerType::Structure),
-            TLVElementType::Array => TLVType::Container(TLVContainerType::Array),
-            TLVElementType::List => TLVType::Container(TLVContainerType::List),
+            ElementType::Structure => TLVType::Container(ContainerType::Structure),
+            ElementType::Array => TLVType::Container(ContainerType::Array),
+            ElementType::List => TLVType::Container(ContainerType::List),
             _ => return Err(TLVError::InvalidType),
         })
     }
 }
 
-impl TLVPredeterminedLengthType {
+impl PredeterminedLenPrimitive {
     pub(crate) fn value_octets_count(&self) -> usize {
         match self {
-            TLVPredeterminedLengthType::SignedInteger(signed_int) => match signed_int {
-                TLVSignedInteger::Int8 => 1,
-                TLVSignedInteger::Int16 => 2,
-                TLVSignedInteger::Int32 => 4,
-                TLVSignedInteger::Int64 => 8,
+            PredeterminedLenPrimitive::SignedInteger(signed_int) => match signed_int {
+                SignedInteger::Int8 => 1,
+                SignedInteger::Int16 => 2,
+                SignedInteger::Int32 => 4,
+                SignedInteger::Int64 => 8,
             },
-            TLVPredeterminedLengthType::UnsignedInteger(unsigned_int) => match unsigned_int {
-                TLVUnsignedInteger::UInt8 => 1,
-                TLVUnsignedInteger::UInt16 => 2,
-                TLVUnsignedInteger::UInt32 => 4,
-                TLVUnsignedInteger::UInt64 => 8,
+            PredeterminedLenPrimitive::UnsignedInteger(unsigned_int) => match unsigned_int {
+                UnsignedInteger::UInt8 => 1,
+                UnsignedInteger::UInt16 => 2,
+                UnsignedInteger::UInt32 => 4,
+                UnsignedInteger::UInt64 => 8,
             },
-            TLVPredeterminedLengthType::Boolean(_) => 0,
-            TLVPredeterminedLengthType::FloatingPointNumber(floating_point) => match floating_point
-            {
-                TLVFloatingPoint::FloatingPointNumber32 => 4,
-                TLVFloatingPoint::FloatingPointNumber64 => 8,
-            },
-            TLVPredeterminedLengthType::Null => 0,
+            PredeterminedLenPrimitive::Boolean(_) => 0,
+            PredeterminedLenPrimitive::FloatingPointNumber(floating_point) => {
+                match floating_point {
+                    FloatingPoint::FloatingPointNumber32 => 4,
+                    FloatingPoint::FloatingPointNumber64 => 8,
+                }
+            }
+            PredeterminedLenPrimitive::Null => 0,
         }
     }
 }
 
-impl TLVByteStrLenBytes {
+impl ByteStrLenBytes {
     pub(crate) fn length_field_size(&self) -> TLVFieldSize {
         match self {
-            TLVByteStrLenBytes::ByteString1ByteLength => TLVFieldSize::OneByte,
-            TLVByteStrLenBytes::ByteString2ByteLength => TLVFieldSize::TwoBytes,
-            TLVByteStrLenBytes::ByteString4ByteLength => TLVFieldSize::FourBytes,
-            TLVByteStrLenBytes::ByteString8ByteLength => TLVFieldSize::EightBytes,
+            ByteStrLenBytes::ByteString1ByteLength => TLVFieldSize::OneByte,
+            ByteStrLenBytes::ByteString2ByteLength => TLVFieldSize::TwoBytes,
+            ByteStrLenBytes::ByteString4ByteLength => TLVFieldSize::FourBytes,
+            ByteStrLenBytes::ByteString8ByteLength => TLVFieldSize::EightBytes,
         }
     }
 }
 
-impl TLVUTF8StrLenBytes {
+impl UTF8StrLenBytes {
     pub(crate) fn length_field_size(&self) -> TLVFieldSize {
         match self {
-            TLVUTF8StrLenBytes::UTF8String1ByteLength => TLVFieldSize::OneByte,
-            TLVUTF8StrLenBytes::UTF8String2ByteLength => TLVFieldSize::TwoBytes,
-            TLVUTF8StrLenBytes::UTF8String4ByteLength => TLVFieldSize::FourBytes,
-            TLVUTF8StrLenBytes::UTF8String8ByteLength => TLVFieldSize::EightBytes,
+            UTF8StrLenBytes::UTF8String1ByteLength => TLVFieldSize::OneByte,
+            UTF8StrLenBytes::UTF8String2ByteLength => TLVFieldSize::TwoBytes,
+            UTF8StrLenBytes::UTF8String4ByteLength => TLVFieldSize::FourBytes,
+            UTF8StrLenBytes::UTF8String8ByteLength => TLVFieldSize::EightBytes,
         }
     }
 }
 
-impl TLVSpecifiedLengthType {
+impl SpecifiedLenPrimitive {
     pub(crate) fn length_field_size(&self) -> TLVFieldSize {
         match self {
-            TLVSpecifiedLengthType::UTF8String(utf8_string) => utf8_string.length_field_size(),
-            TLVSpecifiedLengthType::ByteString(byte_string) => byte_string.length_field_size(),
+            SpecifiedLenPrimitive::UTF8String(utf8_string) => utf8_string.length_field_size(),
+            SpecifiedLenPrimitive::ByteString(byte_string) => byte_string.length_field_size(),
         }
     }
 }
@@ -297,6 +290,40 @@ impl TLVFieldSize {
             TLVFieldSize::TwoBytes => 2,
             TLVFieldSize::FourBytes => 4,
             TLVFieldSize::EightBytes => 8,
+        }
+    }
+
+    pub fn parse_field_size<'a>(&self, bytes: &'a [u8]) -> Result<(&'a [u8], usize), TLVError> {
+        let len_octets_count = self.len();
+        if len_octets_count > bytes.len() {
+            return Err(TLVError::UnderRun);
+        }
+        Ok(match self {
+            TLVFieldSize::OneByte => {
+                let (remaining_bytes, u8_value) = util::parse_u8(bytes)?;
+                (remaining_bytes, u8_value as usize)
+            }
+            TLVFieldSize::TwoBytes => {
+                let (remaining_bytes, u16_value) = util::parse_u16(bytes)?;
+                (remaining_bytes, u16_value as usize)
+            }
+            TLVFieldSize::FourBytes => {
+                let (remaining_bytes, u32_value) = util::parse_u32(bytes)?;
+                (remaining_bytes, u32_value as usize)
+            }
+            TLVFieldSize::EightBytes => {
+                let (remaining_bytes, u64_value) = util::parse_u64(bytes)?;
+                (remaining_bytes, u64_value as usize)
+            }
+        })
+    }
+
+    pub fn extract_field_sized_bytes<'a>(&self, bytes: &'a [u8]) -> Result<&'a [u8], TLVError> {
+        let (remaining_bytes, value_len) = self.parse_field_size(bytes)?;
+        if value_len > remaining_bytes.len() {
+            Err(TLVError::UnderRun)
+        } else {
+            Ok(remaining_bytes[..value_len].as_ref())
         }
     }
 }

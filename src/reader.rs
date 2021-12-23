@@ -1,59 +1,29 @@
 use crate::errors::TLVError;
-use crate::tags::{
-    CommonProfileLength, FullyQualifiedProfileLength, ImplicitProfileLength, TLVTag, TLVTagControl,
-};
-use crate::types::{
-    TLVElementType, TLVFieldSize, TLVPrimitiveLengthType, TLVSpecifiedLengthType, TLVType,
-};
+use crate::tags::{CommonProfileLength, FullyQualifiedProfileLength, TLVTag};
+use crate::types::{ElementType, PrimitiveLengthType, SpecifiedLenPrimitive, TLVType};
+use crate::{tags, util};
 use log::error;
-use nom::bits::{bits, complete::take};
-use nom::error::Error;
-use nom::number::complete::{
-    le_f32, le_f64, le_i16, le_i32, le_i64, le_i8, le_u16, le_u32, le_u64, le_u8,
-};
-use nom::sequence::tuple;
-use nom::{Finish, IResult};
-use std::str::from_utf8;
+use nom::Finish;
 
 struct TLVReader {
-    payload: Vec<u8>,
-    len_read: usize,
+    bytes: Vec<u8>,
+    bytes_read: usize,
 }
 
 impl TLVReader {
-    fn new(payload: &[u8]) -> Self {
+    fn new(bytes: &[u8]) -> Self {
         Self {
-            payload: payload.to_owned(),
-            len_read: 0,
+            bytes: bytes.to_owned(),
+            bytes_read: 0,
         }
     }
 
-    fn current_element(&self, offset: usize) -> &[u8] {
-        self.payload[(self.len_read + offset)..].as_ref()
-    }
-
-    fn split_byte_into_2_parts(
-        input: &[u8],
-        proportions: (usize, usize),
-    ) -> IResult<&[u8], (u8, u8)> {
-        bits::<_, _, Error<(&[u8], usize)>, _, _>(tuple((take(proportions.0), take(proportions.1))))(
-            input,
-        )
-    }
-
-    fn split_byte_into_3_parts(
-        input: &[u8],
-        proportions: (usize, usize, usize),
-    ) -> IResult<&[u8], (u8, u8, u8)> {
-        bits::<_, _, Error<(&[u8], usize)>, _, _>(tuple((
-            take(proportions.0),
-            take(proportions.1),
-            take(proportions.2),
-        )))(input)
+    fn current_element(&self) -> &[u8] {
+        self.bytes[(self.bytes_read)..].as_ref()
     }
 
     fn parse_control_byte(&self) -> Result<(&[u8], (u8, u8)), TLVError> {
-        Self::split_byte_into_2_parts(self.current_element(0), (3usize, 5usize))
+        util::split_byte_into_2_parts(self.current_element(), (3usize, 5usize))
             .finish()
             .map_err(|e| {
                 error!("Cannot parse control byte {}", e.code.description());
@@ -61,146 +31,43 @@ impl TLVReader {
             })
     }
 
-    fn parse_control_byte_with_field_size(&self) -> Result<(&[u8], (u8, u8, u8)), TLVError> {
-        Self::split_byte_into_3_parts(self.current_element(0), (3usize, 3usize, 2usize))
-            .finish()
-            .map_err(|e| {
-                error!("Cannot parse control byte {}", e.code.description());
-                TLVError::ParseError
-            })
-    }
-
-    fn parse_field_size(
-        field_size: TLVFieldSize,
-        bytes: &[u8],
-    ) -> Result<(&[u8], usize), TLVError> {
-        let len_octets_count = field_size.len();
-        if len_octets_count > bytes.len() {
-            return Err(TLVError::UnderRun);
-        }
-        Ok(match field_size {
-            TLVFieldSize::OneByte => {
-                let (remaining_bytes, u8_value) = Self::parse_u8(bytes)?;
-                (remaining_bytes, u8_value as usize)
-            }
-            TLVFieldSize::TwoBytes => {
-                let (remaining_bytes, u16_value) = Self::parse_u16(bytes)?;
-                (remaining_bytes, u16_value as usize)
-            }
-            TLVFieldSize::FourBytes => {
-                let (remaining_bytes, u32_value) = Self::parse_u32(bytes)?;
-                (remaining_bytes, u32_value as usize)
-            }
-            TLVFieldSize::EightBytes => {
-                let (remaining_bytes, u64_value) = Self::parse_u64(bytes)?;
-                (remaining_bytes, u64_value as usize)
-            }
-        })
+    fn parse_control(&self) -> Result<(&[u8], TLVTag, TLVType), TLVError> {
+        let (remaining_bytes, (tag_control_byte, element_type_byte)) = self.parse_control_byte()?;
+        let (remaining_bytes, tlv_tag) = tags::parse_tag(
+            tag_control_byte << tags::CONTROL_BYTE_SHIFT,
+            remaining_bytes,
+        )?;
+        let tlv_type = Self::tlv_type(element_type_byte)?;
+        Ok((remaining_bytes, tlv_tag, tlv_type))
     }
 
     fn parse_primitive_len(
-        primitive_length_type: TLVPrimitiveLengthType,
+        primitive_length_type: PrimitiveLengthType,
         remaining_bytes: &[u8],
     ) -> Result<(&[u8], usize, usize), TLVError> {
         Ok(match primitive_length_type {
-            TLVPrimitiveLengthType::Predetermined(predetermined_len_type) => (
+            PrimitiveLengthType::Predetermined(predetermined_len_type) => (
                 remaining_bytes,
                 0,
                 predetermined_len_type.value_octets_count(),
             ),
-            TLVPrimitiveLengthType::Specified(specified_len_type) => {
+            PrimitiveLengthType::Specified(specified_len_type) => {
                 let len_field_size = specified_len_type.length_field_size();
                 let (remaining_bytes, value_octets_count) =
-                    Self::parse_field_size(len_field_size.clone(), remaining_bytes)?;
+                    len_field_size.parse_field_size(remaining_bytes)?;
                 (remaining_bytes, len_field_size.len(), value_octets_count)
             }
         })
     }
 
     fn tlv_type(element_type_byte: u8) -> Result<TLVType, TLVError> {
-        let element_type = TLVElementType::try_from(element_type_byte)?;
+        let element_type = ElementType::try_from(element_type_byte)?;
         let tlv_type = TLVType::try_from(element_type)?;
         Ok(tlv_type)
     }
 
-    fn parse_tag(
-        tag_control_byte: u8,
-        remaining_bytes: &[u8],
-    ) -> Result<(&[u8], TLVTag), TLVError> {
-        let tag_control = TLVTagControl::try_from(tag_control_byte)?;
-        let (remaining_bytes, tlv_tag) = match tag_control {
-            TLVTagControl::Anonymous => (remaining_bytes, TLVTag::Anonymous),
-            TLVTagControl::ContextSpecific => {
-                let (remaining_bytes, tag_number) = Self::parse_u8(remaining_bytes)?;
-                (remaining_bytes, TLVTag::ContextSpecific(tag_number))
-            }
-            TLVTagControl::CommonProfile2Bytes => {
-                let (remaining_bytes, tag_number) = Self::parse_u16(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    TLVTag::CommonProfile(CommonProfileLength::TwoOctets { tag_number }),
-                )
-            }
-            TLVTagControl::CommonProfile4Bytes => {
-                let (remaining_bytes, tag_number) = Self::parse_u32(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    TLVTag::CommonProfile(CommonProfileLength::FourOctets { tag_number }),
-                )
-            }
-            TLVTagControl::ImplicitProfile2Bytes => {
-                let (remaining_bytes, tag_number) = Self::parse_u16(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    TLVTag::ImplicitProfile(ImplicitProfileLength::TwoOctets { tag_number }),
-                )
-            }
-            TLVTagControl::ImplicitProfile4Bytes => {
-                let (remaining_bytes, tag_number) = Self::parse_u32(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    TLVTag::ImplicitProfile(ImplicitProfileLength::FourOctets { tag_number }),
-                )
-            }
-            TLVTagControl::FullyQualified6Bytes => {
-                let (remaining_bytes, vendor_id) = Self::parse_u16(remaining_bytes)?;
-                let (remaining_bytes, profile_number) = Self::parse_u16(remaining_bytes)?;
-                let (remaining_bytes, tag_number) = Self::parse_u16(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::SixOctets {
-                        vendor_id,
-                        profile_number,
-                        tag_number,
-                    }),
-                )
-            }
-            TLVTagControl::FullyQualified8Bytes => {
-                let (remaining_bytes, vendor_id) = Self::parse_u16(remaining_bytes)?;
-                let (remaining_bytes, profile_number) = Self::parse_u16(remaining_bytes)?;
-                let (remaining_bytes, tag_number) = Self::parse_u32(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::EightOctets {
-                        vendor_id,
-                        profile_number,
-                        tag_number,
-                    }),
-                )
-            }
-        };
-        Ok((remaining_bytes, tlv_tag))
-    }
-
-    fn parse_control_byte_for_tag_and_type(&self) -> Result<(&[u8], TLVTag, TLVType), TLVError> {
-        let (remaining_bytes, (tag_control_byte, element_type_byte)) = self.parse_control_byte()?;
-        let (remaining_bytes, tlv_tag) = Self::parse_tag(tag_control_byte << 5, remaining_bytes)?;
-        let tlv_type = Self::tlv_type(element_type_byte)?;
-        Ok((remaining_bytes, tlv_tag, tlv_type))
-    }
-
     fn next(&mut self) -> Result<(), TLVError> {
-        let (remaining_bytes, tlv_tag, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
+        let (remaining_bytes, tlv_tag, tlv_type) = self.parse_control()?;
         let length_and_value_octets_count = match tlv_type {
             TLVType::Container(_) => todo!("Skip to the End of Container"),
             TLVType::Primitive(primitive_length_type) => {
@@ -210,58 +77,26 @@ impl TLVReader {
             }
         };
         let element_len = length_and_value_octets_count + tlv_tag.octets_count() as usize + 1; // +1 for control byte
-        let next_element = self.len_read + element_len;
-        if next_element > self.payload.len() {
+        let next_element = self.bytes_read + element_len;
+        if next_element > self.bytes.len() {
             Err(TLVError::UnderRun)
-        } else if next_element == self.payload.len() {
+        } else if next_element == self.bytes.len() {
             Err(TLVError::EndOfTLV)
         } else {
-            self.len_read = next_element;
+            self.bytes_read = next_element;
             Ok(())
         }
     }
 
     fn read_tag(&self) -> Result<TLVTag, TLVError> {
-        let (_, tlv_tag, _) = self.parse_control_byte_for_tag_and_type()?;
+        let (_, tlv_tag, _) = self.parse_control()?;
         Ok(tlv_tag)
     }
 
-    fn parse_u8(bytes: &[u8]) -> Result<(&[u8], u8), TLVError> {
-        let (remaining_bytes, value) = le_u8::<_, Error<&[u8]>>(bytes).map_err(|e| {
-            error!("Failed to parse u8 {}", e);
-            TLVError::ParseError
-        })?;
-        Ok((remaining_bytes, value))
-    }
-
-    fn parse_u16(bytes: &[u8]) -> Result<(&[u8], u16), TLVError> {
-        let (remaining_bytes, value) = le_u16::<_, Error<&[u8]>>(bytes).map_err(|e| {
-            error!("Failed to parse u16 {}", e);
-            TLVError::ParseError
-        })?;
-        Ok((remaining_bytes, value))
-    }
-
-    fn parse_u32(bytes: &[u8]) -> Result<(&[u8], u32), TLVError> {
-        let (remaining_bytes, value) = le_u32::<_, Error<&[u8]>>(bytes).map_err(|e| {
-            error!("Failed to parse u32 {}", e);
-            TLVError::ParseError
-        })?;
-        Ok((remaining_bytes, value))
-    }
-
-    fn parse_u64(bytes: &[u8]) -> Result<(&[u8], u64), TLVError> {
-        let (remaining_bytes, value) = le_u64::<_, Error<&[u8]>>(bytes).map_err(|e| {
-            error!("Failed to parse u64 {}", e);
-            TLVError::ParseError
-        })?;
-        Ok((remaining_bytes, value))
-    }
-
     fn read_u8(&self) -> Result<u8, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::UInt8)? {
-            let (_, value) = Self::parse_u8(remaining_bytes)?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::UInt8)? {
+            let (_, value) = util::parse_u8(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -269,9 +104,9 @@ impl TLVReader {
     }
 
     fn read_u16(&self) -> Result<u16, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::UInt16)? {
-            let (_, value) = Self::parse_u16(remaining_bytes)?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::UInt16)? {
+            let (_, value) = util::parse_u16(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -279,9 +114,9 @@ impl TLVReader {
     }
 
     fn read_u32(&self) -> Result<u32, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::UInt32)? {
-            let (_, value) = Self::parse_u32(remaining_bytes)?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::UInt32)? {
+            let (_, value) = util::parse_u32(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -289,9 +124,9 @@ impl TLVReader {
     }
 
     fn read_u64(&self) -> Result<u64, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::UInt64)? {
-            let (_, value) = Self::parse_u64(remaining_bytes)?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::UInt64)? {
+            let (_, value) = util::parse_u64(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -299,12 +134,9 @@ impl TLVReader {
     }
 
     fn read_i8(&self) -> Result<i8, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::Int8)? {
-            let (_, value) = le_i8::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
-                error!("Failed to parse i8 {}", e);
-                TLVError::ParseError
-            })?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::Int8)? {
+            let (_, value) = util::parse_i8(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -312,12 +144,9 @@ impl TLVReader {
     }
 
     fn read_i16(&self) -> Result<i16, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::Int16)? {
-            let (_, value) = le_i16::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
-                error!("Failed to parse i16 {}", e);
-                TLVError::ParseError
-            })?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::Int16)? {
+            let (_, value) = util::parse_i16(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -325,12 +154,9 @@ impl TLVReader {
     }
 
     fn read_i32(&self) -> Result<i32, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::Int32)? {
-            let (_, value) = le_i32::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
-                error!("Failed to parse i32 {}", e);
-                TLVError::ParseError
-            })?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::Int32)? {
+            let (_, value) = util::parse_i32(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -338,12 +164,9 @@ impl TLVReader {
     }
 
     fn read_i64(&self) -> Result<i64, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::Int64)? {
-            let (_, value) = le_i64::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
-                error!("Failed to parse i64 {}", e);
-                TLVError::ParseError
-            })?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::Int64)? {
+            let (_, value) = util::parse_i64(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -351,12 +174,9 @@ impl TLVReader {
     }
 
     fn read_f32(&self) -> Result<f32, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::FloatingPointNumber32)? {
-            let (_, value) = le_f32::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
-                error!("Failed to parse f32 {}", e);
-                TLVError::ParseError
-            })?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::FloatingPointNumber32)? {
+            let (_, value) = util::parse_f32(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -364,12 +184,9 @@ impl TLVReader {
     }
 
     fn read_f64(&self) -> Result<f64, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::FloatingPointNumber64)? {
-            let (_, value) = le_f64::<_, Error<&[u8]>>(remaining_bytes).map_err(|e| {
-                error!("Failed to parse f64 {}", e);
-                TLVError::ParseError
-            })?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::FloatingPointNumber64)? {
+            let (_, value) = util::parse_f64(remaining_bytes)?;
             Ok(value)
         } else {
             Err(TLVError::InvalidType)
@@ -377,10 +194,10 @@ impl TLVReader {
     }
 
     fn read_bool(&self) -> Result<bool, TLVError> {
-        let (_, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::BooleanTrue)? {
+        let (_, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::BooleanTrue)? {
             Ok(true)
-        } else if tlv_type == TLVType::try_from(TLVElementType::BooleanFalse)? {
+        } else if tlv_type == TLVType::try_from(ElementType::BooleanFalse)? {
             Ok(false)
         } else {
             Err(TLVError::InvalidType)
@@ -388,8 +205,8 @@ impl TLVReader {
     }
 
     fn read_null(&self) -> Result<(), TLVError> {
-        let (_, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
-        if tlv_type == TLVType::try_from(TLVElementType::Null)? {
+        let (_, _, tlv_type) = self.parse_control()?;
+        if tlv_type == TLVType::try_from(ElementType::Null)? {
             Ok(())
         } else {
             Err(TLVError::InvalidType)
@@ -397,46 +214,33 @@ impl TLVReader {
     }
 
     fn read_byte_str(&self) -> Result<&[u8], TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
         let field_size = match tlv_type {
-            TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                TLVSpecifiedLengthType::ByteString(string),
+            TLVType::Primitive(PrimitiveLengthType::Specified(
+                SpecifiedLenPrimitive::ByteString(string),
             )) => string.length_field_size(),
             _ => return Err(TLVError::InvalidType),
         };
-        let (remaining_bytes, value_len) = Self::parse_field_size(field_size, remaining_bytes)?;
-        if value_len > remaining_bytes.len() {
-            return Err(TLVError::UnderRun);
-        }
-        Ok(remaining_bytes[..value_len].as_ref())
+        field_size.extract_field_sized_bytes(remaining_bytes)
     }
 
     fn read_char_str(&self) -> Result<&str, TLVError> {
-        let (remaining_bytes, _, tlv_type) = self.parse_control_byte_for_tag_and_type()?;
+        let (remaining_bytes, _, tlv_type) = self.parse_control()?;
         let field_size = match tlv_type {
-            TLVType::Primitive(TLVPrimitiveLengthType::Specified(
-                TLVSpecifiedLengthType::UTF8String(string),
+            TLVType::Primitive(PrimitiveLengthType::Specified(
+                SpecifiedLenPrimitive::UTF8String(string),
             )) => string.length_field_size(),
             _ => return Err(TLVError::InvalidType),
         };
-        let (remaining_bytes, value_len) = Self::parse_field_size(field_size, remaining_bytes)?;
-        if value_len > remaining_bytes.len() {
-            return Err(TLVError::UnderRun);
-        }
-        let value = remaining_bytes[..value_len].as_ref();
-        let value_str = from_utf8(value).map_err(|e| {
-            error!("{}", e);
-            TLVError::ParseError
-        })?;
-        Ok(value_str)
+        let value = field_size.extract_field_sized_bytes(remaining_bytes)?;
+        util::parse_str(value)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tags::TLVTagControl;
-    use crate::types::TLVFieldSize;
+    use crate::tags::TagControl;
 
     #[test]
     fn test_parse_control_byte() {
@@ -446,26 +250,11 @@ mod tests {
         let (remaining_bytes, (tag_control, element_type)) = tlv_reader
             .parse_control_byte()
             .expect("Cannot parse control byte");
-        assert_eq!(tag_control << 5, TLVTagControl::Anonymous as u8);
-        assert_eq!(element_type, TLVElementType::UInt64 as u8);
         assert_eq!(
-            remaining_bytes,
-            [0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00]
+            tag_control << tags::CONTROL_BYTE_SHIFT,
+            TagControl::Anonymous as u8
         );
-    }
-
-    #[test]
-    fn test_parse_control_byte_with_field_size() {
-        // Unsigned Integer, 8-octet, value 40000000000
-        let test_bytes = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00];
-        let tlv_reader = TLVReader::new(test_bytes);
-        let (remaining_bytes, (tag_control, tlv_type, field_size)) = tlv_reader
-            .parse_control_byte_with_field_size()
-            .expect("Cannot parse control byte");
-        assert_eq!(tag_control, TLVTagControl::Anonymous as u8);
-        assert_eq!(((tlv_type << 2) | field_size), TLVElementType::UInt64 as u8);
-        assert_eq!(field_size, TLVFieldSize::EightBytes as u8);
-        assert_eq!((1 << field_size) as usize, remaining_bytes.len());
+        assert_eq!(element_type, ElementType::UInt64 as u8);
         assert_eq!(
             remaining_bytes,
             [0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00]
