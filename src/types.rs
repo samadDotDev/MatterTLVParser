@@ -1,6 +1,6 @@
 use num::{FromPrimitive, ToPrimitive};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TLVError {
     OverRun,
     EndOfTLV,
@@ -302,9 +302,52 @@ impl TLVSpecifiedLengthType {
 
 #[derive(Debug)]
 #[repr(u8)]
+pub enum TLVBitMask {
+    PrimitiveType = 0x1C,
+    FieldSize = 0x03,
+}
+
+// Bit masked value of element type
+// Prefer to use these primitives instead of field size defined types
+#[derive(Debug, PartialEq)]
+#[repr(u8)]
+pub enum TLVPrimitiveType {
+    SignedInteger = 0x00,
+    UnsignedInteger = 0x04,
+    FloatingPointNumber = 0x08,
+    Null = 0x14,
+    UTF8String = 0xC,
+    ByteString = 0x10,
+}
+
+#[derive(Debug, PartialEq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+#[repr(u8)]
 pub enum TLVFieldSize {
     OneByte = 0,
     TwoByte = 1,
     FourByte = 2,
     EightByte = 3,
+}
+
+impl TLVFieldSize {
+    pub fn as_u8(&self) -> u8 {
+        ToPrimitive::to_u8(self).expect("TLVFieldSize failed to convert to primitive")
+    }
+    pub fn len(&self) -> usize {
+        match self {
+            TLVFieldSize::OneByte => 1,
+            TLVFieldSize::TwoByte => 2,
+            TLVFieldSize::FourByte => 4,
+            TLVFieldSize::EightByte => 8,
+        }
+    }
+}
+
+impl TryFrom<u8> for TLVFieldSize {
+    type Error = TLVError;
+
+    fn try_from(element_type: u8) -> Result<Self, Self::Error> {
+        let element_type = Self::from_u8(element_type).ok_or(TLVError::InvalidType)?;
+        Ok(element_type)
+    }
 }

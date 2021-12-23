@@ -1,8 +1,8 @@
 #![allow(dead_code)] // Temporarily disable unused code warnings for the binary
 
 use crate::types::{
-    TLVBoolean, TLVElementType, TLVError, TLVFloatingPoint, TLVNull, TLVPrimitiveLengthType,
-    TLVSignedInteger, TLVType, TLVUnsignedInteger,
+    TLVBitMask, TLVBoolean, TLVElementType, TLVError, TLVFieldSize, TLVFloatingPoint, TLVNull,
+    TLVPrimitiveLengthType, TLVPrimitiveType, TLVSignedInteger, TLVType, TLVUnsignedInteger,
 };
 use log::error;
 use nom::bits::{bits, complete::take};
@@ -127,16 +127,17 @@ impl TLVReader {
             TLVType::Primitive(TLVPrimitiveLengthType::Specified(specified_len_type)) => {
                 let len_octets = specified_len_type.length_octets_count();
                 let val_octets = self.parse_len(len_octets)?;
-                len_octets + val_octets
+                val_octets + len_octets as usize
             }
         };
         let len_to_skip = element_len + 1; // Element (Length + Value bytes) + Control byte
-        if len_to_skip > self.payload.len() {
+        let next_pointer = self.len_read + len_to_skip;
+        if next_pointer > self.payload.len() {
             Err(TLVError::OverRun)
-        } else if len_to_skip == self.payload.len() - 1 {
+        } else if next_pointer == self.payload.len() {
             Err(TLVError::EndOfTLV)
         } else {
-            self.len_read += len_to_skip;
+            self.len_read = next_pointer;
             Ok(())
         }
     }
@@ -290,6 +291,54 @@ impl TLVReader {
             Err(TLVError::InvalidType)
         }
     }
+
+    fn read_byte_str(&self) -> Result<&[u8], TLVError> {
+        let (remaining_bytes, (_, element_type_byte)) = self.parse_control_byte()?;
+        if (element_type_byte & (TLVBitMask::PrimitiveType as u8))
+            == TLVPrimitiveType::ByteString as u8
+        {
+            let field_size =
+                TLVFieldSize::try_from(element_type_byte & (TLVBitMask::FieldSize as u8))?;
+            let len_octets_count = field_size.len();
+            if len_octets_count > remaining_bytes.len() {
+                return Err(TLVError::OverRun);
+            }
+            let value_len = self.parse_len(len_octets_count)?;
+            if (len_octets_count + value_len) > remaining_bytes.len() {
+                return Err(TLVError::OverRun);
+            }
+            Ok(remaining_bytes[len_octets_count..(len_octets_count + value_len)].as_ref())
+        } else {
+            Err(TLVError::InvalidType)
+        }
+    }
+
+    fn read_char_str(&self) -> Result<&str, TLVError> {
+        let (remaining_bytes, (_, element_type_byte)) = self.parse_control_byte()?;
+        if (element_type_byte & (TLVBitMask::PrimitiveType as u8))
+            == TLVPrimitiveType::UTF8String as u8
+        {
+            // TODO: Extract the code common with read_byte_str in a helper
+            let field_size =
+                TLVFieldSize::try_from(element_type_byte & (TLVBitMask::FieldSize as u8))?;
+            let len_octets_count = field_size.len();
+            if len_octets_count > remaining_bytes.len() {
+                return Err(TLVError::OverRun);
+            }
+            let value_len = self.parse_len(len_octets_count)?;
+            if (len_octets_count + value_len) > remaining_bytes.len() {
+                return Err(TLVError::OverRun);
+            }
+            let value = remaining_bytes[len_octets_count..(len_octets_count + value_len)].as_ref();
+            let value_str = std::str::from_utf8(value).map_err(|e| {
+                error!("{}", e);
+                TLVError::ParseError
+            })?;
+            Ok(value_str)
+        } else {
+            Err(TLVError::InvalidType)
+        }
+    }
 }
 
 fn main() {
@@ -298,10 +347,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::tags::TLVTagControl;
     use crate::types::TLVFieldSize;
-
-    use super::*;
 
     #[test]
     fn test_parse_control_byte() {
@@ -479,26 +527,103 @@ mod tests {
     }
 
     #[test]
+    fn test_read_byte_str() {
+        // Octet String, 1-octet length specifying 5 octets 00 01 02 03 04
+        let test_bytes = &[0x10, 0x05, 0x00, 0x01, 0x02, 0x03, 0x04];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader
+                .read_byte_str()
+                .expect("Failed to read byte string"),
+            [0x00, 0x01, 0x02, 0x03, 0x04]
+        );
+    }
+
+    #[test]
+    fn test_read_char_str() {
+        // UTF-8 String, 1-octet length, "Hello!"
+        let test_bytes = &[0x0c, 0x06, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x21];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader
+                .read_char_str()
+                .expect("Failed to read character string"),
+            "Hello!"
+        );
+
+        // UTF-8 String, 1-octet length, "Tschüs"
+        let test_bytes = &[0x0c, 0x07, 0x54, 0x73, 0x63, 0x68, 0xc3, 0xbc, 0x73];
+        let tlv_reader = TLVReader::new(test_bytes);
+        assert_eq!(
+            tlv_reader
+                .read_char_str()
+                .expect("Failed to read character string"),
+            "Tschüs"
+        );
+    }
+
+    #[test]
     fn test_read_sequence() {
         // Unsigned Integer, 8-octet, value 40000000000
         // + Unsigned Integer, 1-octet, value 255
         // + Signed Integer, 4-octet, value -904534
+        // + Boolean true
+        // + Null
+        // + Double precision floating point negative infinity (-∞)
+        // + UTF-8 String, 1-octet length, "The End."
         let test_bytes = &[
             0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00, 0x04, 0xFF, 0x02, 0xAA, 0x32,
-            0xF2, 0xFF,
+            0xF2, 0xFF, 0x09, 0x14, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xff, 0x0c,
+            0x08, 0x54, 0x68, 0x65, 0x20, 0x45, 0x6e, 0x64, 0x2e,
         ];
         let mut tlv_reader = TLVReader::new(test_bytes);
+
         assert_eq!(
             tlv_reader.read_u64().expect("Failed to read u64"),
             40000000000
         );
+
         tlv_reader
             .next()
             .expect("Failed to move pointer to next element");
         assert_eq!(tlv_reader.read_u8().expect("Failed to read u8"), 255);
+
         tlv_reader
             .next()
             .expect("Failed to move pointer to next element");
         assert_eq!(tlv_reader.read_i32().expect("Failed to read i32"), -904534);
+
+        tlv_reader
+            .next()
+            .expect("Failed to move pointer to next element");
+        assert!(tlv_reader.read_bool().expect("Failed to read bool"));
+
+        tlv_reader
+            .next()
+            .expect("Failed to move pointer to next element");
+        tlv_reader.read_null().expect("Failed to read null byte");
+
+        tlv_reader
+            .next()
+            .expect("Failed to move pointer to next element");
+        assert_eq!(
+            tlv_reader.read_f64().expect("Failed to read f64"),
+            f64::NEG_INFINITY
+        );
+
+        tlv_reader
+            .next()
+            .expect("Failed to move pointer to next element");
+        assert_eq!(
+            tlv_reader
+                .read_char_str()
+                .expect("Failed to read character string"),
+            "The End."
+        );
+
+        assert_eq!(
+            tlv_reader.next().expect_err("Sequence End is expected"),
+            TLVError::EndOfTLV
+        );
     }
 }
