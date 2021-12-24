@@ -1,9 +1,12 @@
+#![allow(dead_code)] // Until the Library is used
+
 use crate::errors::TLVError;
-use crate::tags::{CommonProfileLength, FullyQualifiedProfileLength, TLVTag};
+use crate::tags::TLVTag;
 use crate::types::{ElementType, PrimitiveLengthType, SpecifiedLenPrimitive, TLVType};
 use crate::{tags, util};
 use log::error;
 use nom::Finish;
+use std::cmp::Ordering;
 
 struct TLVReader {
     bytes: Vec<u8>,
@@ -55,7 +58,11 @@ impl TLVReader {
                 let len_field_size = specified_len_type.length_field_size();
                 let (remaining_bytes, value_octets_count) =
                     len_field_size.parse_field_size(remaining_bytes)?;
-                (remaining_bytes, len_field_size.len(), value_octets_count)
+                (
+                    remaining_bytes,
+                    len_field_size.len_octets_count(),
+                    value_octets_count,
+                )
             }
         })
     }
@@ -78,13 +85,13 @@ impl TLVReader {
         };
         let element_len = length_and_value_octets_count + tlv_tag.octets_count() as usize + 1; // +1 for control byte
         let next_element = self.bytes_read + element_len;
-        if next_element > self.bytes.len() {
-            Err(TLVError::UnderRun)
-        } else if next_element == self.bytes.len() {
-            Err(TLVError::EndOfTLV)
-        } else {
-            self.bytes_read = next_element;
-            Ok(())
+        match next_element.cmp(&self.bytes.len()) {
+            Ordering::Greater => Err(TLVError::UnderRun),
+            Ordering::Equal => Err(TLVError::EndOfTLV),
+            Ordering::Less => {
+                self.bytes_read = next_element;
+                Ok(())
+            }
         }
     }
 
@@ -240,7 +247,7 @@ impl TLVReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tags::TagControl;
+    use crate::tags::{CommonProfileLength, FullyQualifiedProfileLength, TagControl};
 
     #[test]
     fn test_parse_control_byte() {
@@ -406,23 +413,23 @@ mod tests {
         // Single precision floating point 17.9
         let test_bytes = &[0x0a, 0x33, 0x33, 0x8f, 0x41];
         let tlv_reader = TLVReader::new(test_bytes);
-        assert_eq!(tlv_reader.read_f32().expect("Failed to read f32"), 17.9);
+        let expected: f32 = 17.9;
+        let actual = tlv_reader.read_f32().expect("Failed to read f32");
+        assert!((expected - actual).abs() < f32::EPSILON);
 
         // Single precision floating point infinity (∞)
         let test_bytes = &[0x0a, 0x00, 0x00, 0x80, 0x7f];
         let tlv_reader = TLVReader::new(test_bytes);
-        assert_eq!(
-            tlv_reader.read_f32().expect("Failed to read f32"),
-            f32::INFINITY
-        );
+        let infinity = tlv_reader.read_f32().expect("Failed to read f32");
+        assert!(infinity.is_sign_positive());
+        assert!(infinity.is_infinite());
 
         // Single precision floating point negative infinity (-∞)
         let test_bytes = &[0x0a, 0x00, 0x00, 0x80, 0xff];
         let tlv_reader = TLVReader::new(test_bytes);
-        assert_eq!(
-            tlv_reader.read_f32().expect("Failed to read f32"),
-            f32::NEG_INFINITY
-        );
+        let infinity = tlv_reader.read_f32().expect("Failed to read f32");
+        assert!(infinity.is_sign_negative());
+        assert!(infinity.is_infinite());
     }
 
     #[test]
@@ -430,23 +437,23 @@ mod tests {
         // Double precision floating point 17.9
         let test_bytes = &[0x0b, 0x66, 0x66, 0x66, 0x66, 0x66, 0xe6, 0x31, 0x40];
         let tlv_reader = TLVReader::new(test_bytes);
-        assert_eq!(tlv_reader.read_f64().expect("Failed to read f64"), 17.9);
+        let expected: f64 = 17.9;
+        let actual = tlv_reader.read_f64().expect("Failed to read f64");
+        assert!((expected - actual).abs() < f64::EPSILON);
 
         // Double precision floating point infinity (∞)
         let test_bytes = &[0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x7f];
         let tlv_reader = TLVReader::new(test_bytes);
-        assert_eq!(
-            tlv_reader.read_f64().expect("Failed to read f64"),
-            f64::INFINITY
-        );
+        let infinity = tlv_reader.read_f64().expect("Failed to read f64");
+        assert!(infinity.is_sign_positive());
+        assert!(infinity.is_infinite());
 
         // Double precision floating point negative infinity (-∞)
         let test_bytes = &[0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xff];
         let tlv_reader = TLVReader::new(test_bytes);
-        assert_eq!(
-            tlv_reader.read_f64().expect("Failed to read f64"),
-            f64::NEG_INFINITY
-        );
+        let infinity = tlv_reader.read_f64().expect("Failed to read f64");
+        assert!(infinity.is_sign_negative());
+        assert!(infinity.is_infinite());
     }
 
     #[test]
@@ -551,10 +558,9 @@ mod tests {
         tlv_reader
             .next()
             .expect("Failed to move pointer to next element");
-        assert_eq!(
-            tlv_reader.read_f64().expect("Failed to read f64"),
-            f64::NEG_INFINITY
-        );
+        let infinity = tlv_reader.read_f64().expect("Failed to read f64");
+        assert!(infinity.is_sign_negative());
+        assert!(infinity.is_infinite());
 
         tlv_reader
             .next()

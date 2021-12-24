@@ -73,25 +73,25 @@ pub enum PredeterminedLenPrimitive {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum UTF8StrLenBytes {
-    UTF8String1ByteLength,
-    UTF8String2ByteLength,
-    UTF8String4ByteLength,
-    UTF8String8ByteLength,
+pub enum UTF8StrLen {
+    OneOctet,
+    TwoOctets,
+    FourOctets,
+    EightOctets,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ByteStrLenBytes {
-    ByteString1ByteLength,
-    ByteString2ByteLength,
-    ByteString4ByteLength,
-    ByteString8ByteLength,
+pub enum ByteStrLen {
+    OneOctet,
+    TwoOctets,
+    FourOctets,
+    EightOctets,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum SpecifiedLenPrimitive {
-    UTF8String(UTF8StrLenBytes),
-    ByteString(ByteStrLenBytes),
+    UTF8String(UTF8StrLen),
+    ByteString(ByteStrLen),
 }
 
 #[derive(Debug, PartialEq)]
@@ -165,43 +165,43 @@ impl TryFrom<ElementType> for TLVType {
 
             ElementType::UTF8String1ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String1ByteLength),
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLen::OneOctet),
                 ))
             }
             ElementType::UTF8String2ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String2ByteLength),
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLen::TwoOctets),
                 ))
             }
             ElementType::UTF8String4ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String4ByteLength),
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLen::FourOctets),
                 ))
             }
             ElementType::UTF8String8ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::UTF8String(UTF8StrLenBytes::UTF8String8ByteLength),
+                    SpecifiedLenPrimitive::UTF8String(UTF8StrLen::EightOctets),
                 ))
             }
 
             ElementType::ByteString1ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString1ByteLength),
+                    SpecifiedLenPrimitive::ByteString(ByteStrLen::OneOctet),
                 ))
             }
             ElementType::ByteString2ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString2ByteLength),
+                    SpecifiedLenPrimitive::ByteString(ByteStrLen::TwoOctets),
                 ))
             }
             ElementType::ByteString4ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString4ByteLength),
+                    SpecifiedLenPrimitive::ByteString(ByteStrLen::FourOctets),
                 ))
             }
             ElementType::ByteString8ByteLength => {
                 TLVType::Primitive(PrimitiveLengthType::Specified(
-                    SpecifiedLenPrimitive::ByteString(ByteStrLenBytes::ByteString8ByteLength),
+                    SpecifiedLenPrimitive::ByteString(ByteStrLen::EightOctets),
                 ))
             }
 
@@ -243,24 +243,24 @@ impl PredeterminedLenPrimitive {
     }
 }
 
-impl ByteStrLenBytes {
+impl ByteStrLen {
     pub(crate) fn length_field_size(&self) -> TLVFieldSize {
         match self {
-            ByteStrLenBytes::ByteString1ByteLength => TLVFieldSize::OneByte,
-            ByteStrLenBytes::ByteString2ByteLength => TLVFieldSize::TwoBytes,
-            ByteStrLenBytes::ByteString4ByteLength => TLVFieldSize::FourBytes,
-            ByteStrLenBytes::ByteString8ByteLength => TLVFieldSize::EightBytes,
+            ByteStrLen::OneOctet => TLVFieldSize::OneOctet,
+            ByteStrLen::TwoOctets => TLVFieldSize::TwoOctets,
+            ByteStrLen::FourOctets => TLVFieldSize::FourOctets,
+            ByteStrLen::EightOctets => TLVFieldSize::EightOctets,
         }
     }
 }
 
-impl UTF8StrLenBytes {
+impl UTF8StrLen {
     pub(crate) fn length_field_size(&self) -> TLVFieldSize {
         match self {
-            UTF8StrLenBytes::UTF8String1ByteLength => TLVFieldSize::OneByte,
-            UTF8StrLenBytes::UTF8String2ByteLength => TLVFieldSize::TwoBytes,
-            UTF8StrLenBytes::UTF8String4ByteLength => TLVFieldSize::FourBytes,
-            UTF8StrLenBytes::UTF8String8ByteLength => TLVFieldSize::EightBytes,
+            UTF8StrLen::OneOctet => TLVFieldSize::OneOctet,
+            UTF8StrLen::TwoOctets => TLVFieldSize::TwoOctets,
+            UTF8StrLen::FourOctets => TLVFieldSize::FourOctets,
+            UTF8StrLen::EightOctets => TLVFieldSize::EightOctets,
         }
     }
 }
@@ -277,41 +277,41 @@ impl SpecifiedLenPrimitive {
 #[derive(Clone, Debug, PartialEq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[repr(u8)]
 pub enum TLVFieldSize {
-    OneByte = 0,
-    TwoBytes = 1,
-    FourBytes = 2,
-    EightBytes = 3,
+    OneOctet = 0,
+    TwoOctets = 1,
+    FourOctets = 2,
+    EightOctets = 3,
 }
 
 impl TLVFieldSize {
-    pub fn len(&self) -> usize {
+    pub fn len_octets_count(&self) -> usize {
         match self {
-            TLVFieldSize::OneByte => 1,
-            TLVFieldSize::TwoBytes => 2,
-            TLVFieldSize::FourBytes => 4,
-            TLVFieldSize::EightBytes => 8,
+            TLVFieldSize::OneOctet => 1,
+            TLVFieldSize::TwoOctets => 2,
+            TLVFieldSize::FourOctets => 4,
+            TLVFieldSize::EightOctets => 8,
         }
     }
 
     pub fn parse_field_size<'a>(&self, bytes: &'a [u8]) -> Result<(&'a [u8], usize), TLVError> {
-        let len_octets_count = self.len();
+        let len_octets_count = self.len_octets_count();
         if len_octets_count > bytes.len() {
             return Err(TLVError::UnderRun);
         }
         Ok(match self {
-            TLVFieldSize::OneByte => {
+            TLVFieldSize::OneOctet => {
                 let (remaining_bytes, u8_value) = util::parse_u8(bytes)?;
                 (remaining_bytes, u8_value as usize)
             }
-            TLVFieldSize::TwoBytes => {
+            TLVFieldSize::TwoOctets => {
                 let (remaining_bytes, u16_value) = util::parse_u16(bytes)?;
                 (remaining_bytes, u16_value as usize)
             }
-            TLVFieldSize::FourBytes => {
+            TLVFieldSize::FourOctets => {
                 let (remaining_bytes, u32_value) = util::parse_u32(bytes)?;
                 (remaining_bytes, u32_value as usize)
             }
-            TLVFieldSize::EightBytes => {
+            TLVFieldSize::EightOctets => {
                 let (remaining_bytes, u64_value) = util::parse_u64(bytes)?;
                 (remaining_bytes, u64_value as usize)
             }
