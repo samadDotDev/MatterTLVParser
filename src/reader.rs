@@ -220,7 +220,7 @@ impl TLVReader {
         }
     }
 
-    fn read_byte_str(&self) -> Result<&[u8], TLVError> {
+    fn read_byte_str(&self) -> Result<Vec<u8>, TLVError> {
         let (remaining_bytes, _, tlv_type) = self.parse_control()?;
         let field_size = match tlv_type {
             TLVType::Primitive(PrimitiveLengthType::Specified(
@@ -228,10 +228,12 @@ impl TLVReader {
             )) => string.length_field_size(),
             _ => return Err(TLVError::InvalidType),
         };
-        field_size.extract_field_sized_bytes(remaining_bytes)
+        Ok(field_size
+            .extract_field_sized_bytes(remaining_bytes)?
+            .to_vec())
     }
 
-    fn read_char_str(&self) -> Result<&str, TLVError> {
+    fn read_char_str(&self) -> Result<String, TLVError> {
         let (remaining_bytes, _, tlv_type) = self.parse_control()?;
         let field_size = match tlv_type {
             TLVType::Primitive(PrimitiveLengthType::Specified(
@@ -240,7 +242,7 @@ impl TLVReader {
             _ => return Err(TLVError::InvalidType),
         };
         let value = field_size.extract_field_sized_bytes(remaining_bytes)?;
-        util::parse_str(value)
+        Ok(util::parse_str(value)?.to_string())
     }
 }
 
