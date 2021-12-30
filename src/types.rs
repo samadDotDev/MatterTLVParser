@@ -1,5 +1,6 @@
 use crate::errors::TLVError;
 use crate::util;
+use funty::Numeric;
 use num::FromPrimitive;
 
 #[derive(Debug, num_derive::ToPrimitive, num_derive::FromPrimitive)]
@@ -334,5 +335,123 @@ impl TryFrom<u8> for TLVFieldSize {
     fn try_from(field_size: u8) -> Result<Self, Self::Error> {
         let field_size = Self::from_u8(field_size).ok_or(TLVError::InvalidType)?;
         Ok(field_size)
+    }
+}
+
+pub trait TLVNumeric: Numeric {
+    type ValueType;
+    fn element_type_byte(&self) -> u8;
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8>;
+}
+
+impl TLVNumeric for u8 {
+    type ValueType = u8;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::UInt8 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for u16 {
+    type ValueType = u16;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::UInt16 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        // TODO: Could be moved to default implementation within trait
+        // after <T as Numeric>::Bytes is constrained
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for u32 {
+    type ValueType = u32;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::UInt32 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for u64 {
+    type ValueType = u64;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::UInt64 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for i8 {
+    type ValueType = i8;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::Int8 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for i16 {
+    type ValueType = i16;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::Int16 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for i32 {
+    type ValueType = i32;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::Int32 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for i64 {
+    type ValueType = i64;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::Int64 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for f32 {
+    type ValueType = f32;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::FloatingPointNumber32 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
+    }
+}
+
+impl TLVNumeric for f64 {
+    type ValueType = f64;
+
+    fn element_type_byte(&self) -> u8 {
+        ElementType::FloatingPointNumber64 as u8
+    }
+    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
+        value.to_le_bytes().to_vec()
     }
 }

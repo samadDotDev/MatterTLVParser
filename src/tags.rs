@@ -26,19 +26,19 @@ impl TryFrom<u8> for TagControl {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum CommonProfileLength {
     TwoOctets { tag_number: u16 },
     FourOctets { tag_number: u32 },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ImplicitProfileLength {
     TwoOctets { tag_number: u16 },
     FourOctets { tag_number: u32 },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum FullyQualifiedProfileLength {
     SixOctets {
         vendor_id: u16,
@@ -52,7 +52,7 @@ pub enum FullyQualifiedProfileLength {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TLVTag {
     Anonymous,
     ContextSpecific(u8),
@@ -157,4 +157,62 @@ pub fn parse_tag(
         }
     };
     Ok((remaining_bytes, tlv_tag))
+}
+
+impl From<TLVTag> for TagControl {
+    fn from(tag: TLVTag) -> Self {
+        match tag {
+            TLVTag::Anonymous => TagControl::Anonymous,
+            TLVTag::ContextSpecific(_) => TagControl::ContextSpecific,
+            TLVTag::CommonProfile(profile_len) => match profile_len {
+                CommonProfileLength::TwoOctets { .. } => TagControl::CommonProfile2Bytes,
+                CommonProfileLength::FourOctets { .. } => TagControl::CommonProfile4Bytes,
+            },
+            TLVTag::ImplicitProfile(profile_len) => match profile_len {
+                ImplicitProfileLength::TwoOctets { .. } => TagControl::ImplicitProfile2Bytes,
+                ImplicitProfileLength::FourOctets { .. } => TagControl::ImplicitProfile4Bytes,
+            },
+            TLVTag::FullyQualifiedProfile(profile_len) => match profile_len {
+                FullyQualifiedProfileLength::SixOctets { .. } => TagControl::FullyQualified6Bytes,
+                FullyQualifiedProfileLength::EightOctets { .. } => TagControl::FullyQualified8Bytes,
+            },
+        }
+    }
+}
+
+pub fn tag_bytes(tag: TLVTag) -> Vec<u8> {
+    match tag {
+        TLVTag::Anonymous => vec![],
+        TLVTag::ContextSpecific(tag_number) => tag_number.to_le_bytes().to_vec(),
+        TLVTag::CommonProfile(profile_len) => match profile_len {
+            CommonProfileLength::TwoOctets { tag_number } => tag_number.to_le_bytes().to_vec(),
+            CommonProfileLength::FourOctets { tag_number } => tag_number.to_le_bytes().to_vec(),
+        },
+        TLVTag::ImplicitProfile(profile_len) => match profile_len {
+            ImplicitProfileLength::TwoOctets { tag_number } => tag_number.to_le_bytes().to_vec(),
+            ImplicitProfileLength::FourOctets { tag_number } => tag_number.to_le_bytes().to_vec(),
+        },
+        TLVTag::FullyQualifiedProfile(profile_len) => match profile_len {
+            FullyQualifiedProfileLength::SixOctets {
+                vendor_id,
+                profile_number,
+                tag_number,
+            } => {
+                let mut bytes = vendor_id.to_le_bytes().to_vec();
+                bytes.extend_from_slice(&profile_number.to_le_bytes());
+                bytes.extend_from_slice(&tag_number.to_le_bytes());
+                bytes
+            }
+            FullyQualifiedProfileLength::EightOctets {
+                vendor_id,
+                profile_number,
+                tag_number,
+            } => {
+                let mut bytes = vendor_id.to_le_bytes().to_vec();
+                bytes.extend_from_slice(&profile_number.to_le_bytes());
+                bytes.extend_from_slice(&tag_number.to_le_bytes());
+                bytes
+            }
+        },
+    }
 }
