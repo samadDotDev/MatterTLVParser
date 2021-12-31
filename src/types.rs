@@ -1,6 +1,5 @@
 use crate::errors::TLVError;
 use crate::util;
-use funty::Numeric;
 use num::FromPrimitive;
 
 #[derive(Debug, num_derive::ToPrimitive, num_derive::FromPrimitive)]
@@ -338,120 +337,184 @@ impl TryFrom<u8> for TLVFieldSize {
     }
 }
 
-pub trait TLVNumeric: Numeric {
+pub trait TLVPrimitive {
     type ValueType;
-    fn element_type(&self) -> ElementType;
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8>;
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>);
 }
 
-impl TLVNumeric for u8 {
+impl TLVPrimitive for String {
+    type ValueType = String;
+
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let val_bytes = value.into_bytes();
+        let val_len = val_bytes.len();
+
+        let (element_type, len_bytes) = if val_len <= u8::MAX as usize {
+            (
+                ElementType::UTF8String1ByteLength,
+                (val_len as u8).to_le_bytes().to_vec(),
+            )
+        } else if val_len <= u16::MAX as usize {
+            (
+                ElementType::UTF8String2ByteLength,
+                (val_len as u16).to_le_bytes().to_vec(),
+            )
+        } else if val_len <= u32::MAX as usize {
+            (
+                ElementType::UTF8String4ByteLength,
+                (val_len as u32).to_le_bytes().to_vec(),
+            )
+        } else {
+            (
+                ElementType::UTF8String8ByteLength,
+                (val_len as u64).to_le_bytes().to_vec(),
+            )
+        };
+        (element_type, len_bytes, val_bytes)
+    }
+}
+
+impl TLVPrimitive for Vec<u8> {
+    type ValueType = Vec<u8>;
+
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let val_len = value.len();
+
+        let (element_type, len_bytes) = if val_len <= u8::MAX as usize {
+            (
+                ElementType::ByteString1ByteLength,
+                (val_len as u8).to_le_bytes().to_vec(),
+            )
+        } else if val_len <= u16::MAX as usize {
+            (
+                ElementType::ByteString2ByteLength,
+                (val_len as u16).to_le_bytes().to_vec(),
+            )
+        } else if val_len <= u32::MAX as usize {
+            (
+                ElementType::ByteString4ByteLength,
+                (val_len as u32).to_le_bytes().to_vec(),
+            )
+        } else {
+            (
+                ElementType::ByteString8ByteLength,
+                (val_len as u64).to_le_bytes().to_vec(),
+            )
+        };
+
+        (element_type, len_bytes, value)
+    }
+}
+
+impl TLVPrimitive for bool {
+    type ValueType = bool;
+
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = if value {
+            ElementType::BooleanTrue
+        } else {
+            ElementType::BooleanFalse
+        };
+        (element_type, vec![], vec![])
+    }
+}
+
+impl TLVPrimitive for u8 {
     type ValueType = u8;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::UInt8
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::UInt8;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for u16 {
+impl TLVPrimitive for u16 {
     type ValueType = u16;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::UInt16
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        // TODO: Could be moved to default implementation within trait
-        // after <T as Numeric>::Bytes is constrained
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::UInt16;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for u32 {
+impl TLVPrimitive for u32 {
     type ValueType = u32;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::UInt32
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::UInt32;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for u64 {
+impl TLVPrimitive for u64 {
     type ValueType = u64;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::UInt64
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::UInt64;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for i8 {
+impl TLVPrimitive for i8 {
     type ValueType = i8;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::Int8
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::Int8;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for i16 {
+impl TLVPrimitive for i16 {
     type ValueType = i16;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::Int16
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::Int16;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for i32 {
+impl TLVPrimitive for i32 {
     type ValueType = i32;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::Int32
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::Int32;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for i64 {
+impl TLVPrimitive for i64 {
     type ValueType = i64;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::Int64
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::Int64;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for f32 {
+impl TLVPrimitive for f32 {
     type ValueType = f32;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::FloatingPointNumber32
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::FloatingPointNumber32;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }
 
-impl TLVNumeric for f64 {
+impl TLVPrimitive for f64 {
     type ValueType = f64;
 
-    fn element_type(&self) -> ElementType {
-        ElementType::FloatingPointNumber64
-    }
-    fn value_to_bytes(value: Self::ValueType) -> Vec<u8> {
-        value.to_le_bytes().to_vec()
+    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+        let element_type = ElementType::FloatingPointNumber64;
+        let val_bytes = value.to_le_bytes().to_vec();
+        (element_type, vec![], val_bytes)
     }
 }

@@ -5,4 +5,5 @@ pub enum TLVError {
     InvalidTag,
     InvalidType,
     ParseError,
+    Internal(String),
 }

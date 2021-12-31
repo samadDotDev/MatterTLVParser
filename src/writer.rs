@@ -1,7 +1,8 @@
 #![allow(dead_code)] // Until the Library is used
 
+use crate::errors::TLVError;
 use crate::tags::{tag_bytes, TLVTag, TagControl};
-use crate::types::{ElementType, TLVNumeric};
+use crate::types::{ElementType, TLVPrimitive};
 use std::io::Write;
 
 struct TLVWriter<'a> {
@@ -23,105 +24,28 @@ impl<'a> TLVWriter<'a> {
         Self { buffer }
     }
 
-    // TODO: Aim for a single generic write<T> API that includes all primitives including both str
-
-    pub fn write_numeric<T>(&mut self, value: T) -> bool
+    pub fn write_primitive<T>(&mut self, value: T) -> Result<usize, TLVError>
     where
-        T: TLVNumeric + TLVNumeric<ValueType = T>,
+        T: TLVPrimitive + TLVPrimitive<ValueType = T>,
     {
-        self.write_numeric_with_tag(TLVTag::Anonymous, value)
+        self.write_primitive_with_tag(TLVTag::Anonymous, value)
     }
 
-    pub fn write_numeric_with_tag<T>(&mut self, tag: TLVTag, value: T) -> bool
+    pub fn write_primitive_with_tag<T>(&mut self, tag: TLVTag, value: T) -> Result<usize, TLVError>
     where
-        T: TLVNumeric + TLVNumeric<ValueType = T>,
+        T: TLVPrimitive + TLVPrimitive<ValueType = T>,
     {
-        let element_type = value.element_type();
-        let val_bytes = T::value_to_bytes(value);
-        self.write_element(tag, element_type, &[], &val_bytes)
-    }
-
-    // TODO: Extract common functionality between byte/char string
-    pub fn write_byte_str_with_tag(&mut self, tag: TLVTag, value: Vec<u8>) -> bool {
-        let val_len = value.len();
-
-        let (element_type, len_bytes) = if val_len <= u8::MAX as usize {
-            (
-                ElementType::ByteString1ByteLength,
-                (val_len as u8).to_le_bytes().to_vec(),
-            )
-        } else if val_len <= u16::MAX as usize {
-            (
-                ElementType::ByteString2ByteLength,
-                (val_len as u16).to_le_bytes().to_vec(),
-            )
-        } else if val_len <= u32::MAX as usize {
-            (
-                ElementType::ByteString4ByteLength,
-                (val_len as u32).to_le_bytes().to_vec(),
-            )
-        } else {
-            (
-                ElementType::ByteString8ByteLength,
-                (val_len as u64).to_le_bytes().to_vec(),
-            )
-        };
-
-        self.write_element(tag, element_type, len_bytes.as_slice(), value.as_slice())
-    }
-
-    pub fn write_byte_str(&mut self, value: Vec<u8>) -> bool {
-        self.write_byte_str_with_tag(TLVTag::Anonymous, value)
-    }
-
-    pub fn write_char_str_with_tag(&mut self, tag: TLVTag, value: String) -> bool {
-        let val_bytes = value.into_bytes();
-        let val_len = val_bytes.len();
-
-        let (element_type, len_bytes) = if val_len <= u8::MAX as usize {
-            (
-                ElementType::UTF8String1ByteLength,
-                (val_len as u8).to_le_bytes().to_vec(),
-            )
-        } else if val_len <= u16::MAX as usize {
-            (
-                ElementType::UTF8String2ByteLength,
-                (val_len as u16).to_le_bytes().to_vec(),
-            )
-        } else if val_len <= u32::MAX as usize {
-            (
-                ElementType::UTF8String4ByteLength,
-                (val_len as u32).to_le_bytes().to_vec(),
-            )
-        } else {
-            (
-                ElementType::UTF8String8ByteLength,
-                (val_len as u64).to_le_bytes().to_vec(),
-            )
-        };
-
-        self.write_element(tag, element_type, len_bytes.as_slice(), &val_bytes)
-    }
-
-    pub fn write_char_str(&mut self, value: String) -> bool {
-        self.write_char_str_with_tag(TLVTag::Anonymous, value)
-    }
-
-    pub fn write_bool_with_tag(&mut self, tag: TLVTag, value: bool) -> bool {
-        let element_type = if value {
-            ElementType::BooleanTrue
-        } else {
-            ElementType::BooleanFalse
-        };
-        self.write_element(tag, element_type, &[], &[])
-    }
-
-    pub fn write_bool(&mut self, value: bool) -> bool {
-        self.write_bool_with_tag(TLVTag::Anonymous, value)
+        let (element_type, len_bytes, val_bytes) = T::parse_value(value);
+        self.write_element(
+            tag,
+            element_type,
+            len_bytes.as_slice(),
+            val_bytes.as_slice(),
+        )
     }
 
     pub fn write_null_with_tag(&mut self, tag: TLVTag) -> bool {
-        self.write_element(tag, ElementType::Null, &[], &[])
+        self.write_element(tag, ElementType::Null, &[], &[]).is_ok()
     }
 
     pub fn write_null(&mut self) -> bool {
@@ -134,7 +58,7 @@ impl<'a> TLVWriter<'a> {
         element_type: ElementType,
         len_bytes: &[u8],
         val_bytes: &[u8],
-    ) -> bool {
+    ) -> Result<usize, TLVError> {
         let mut element_bytes = Vec::new();
         let tag_control = TagControl::from(tag.clone()) as u8;
         let tag_bytes = tag_bytes(tag);
@@ -144,9 +68,8 @@ impl<'a> TLVWriter<'a> {
         element_bytes.extend_from_slice(len_bytes);
         element_bytes.extend_from_slice(val_bytes);
 
-        let written = self.write(element_bytes.as_ref());
-        // Is there a nicer way to unwrap result and return bool early if Err?
-        written.is_ok() && element_bytes.len() == written.unwrap()
+        self.write(element_bytes.as_ref())
+            .map_err(|e| TLVError::Internal(format!("{:?}", e)))
     }
 }
 
@@ -180,7 +103,12 @@ mod tests {
         let test_input: u8 = 42;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric_with_tag(TLVTag::Anonymous, test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive_with_tag(TLVTag::Anonymous, test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Context tag 1, Unsigned Integer, 1-octet value, 1 = 42U
@@ -188,7 +116,12 @@ mod tests {
         let test_input: u8 = 42;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric_with_tag(TLVTag::ContextSpecific(1), test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive_with_tag(TLVTag::ContextSpecific(1), test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Common profile tag 1, Unsigned Integer, 1-octet value, CHIP::1 = 42U
@@ -196,10 +129,15 @@ mod tests {
         let test_input: u8 = 42;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric_with_tag(
-            TLVTag::CommonProfile(CommonProfileLength::TwoOctets { tag_number: 1 }),
-            test_input
-        ));
+        assert_eq!(
+            tlv_writer
+                .write_primitive_with_tag(
+                    TLVTag::CommonProfile(CommonProfileLength::TwoOctets { tag_number: 1 }),
+                    test_input
+                )
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Common profile tag 100000, Unsigned Integer, 1-octet value, CHIP::100000 = 42U
@@ -207,10 +145,15 @@ mod tests {
         let test_input: u8 = 42;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric_with_tag(
-            TLVTag::CommonProfile(CommonProfileLength::FourOctets { tag_number: 100000 }),
-            test_input
-        ));
+        assert_eq!(
+            tlv_writer
+                .write_primitive_with_tag(
+                    TLVTag::CommonProfile(CommonProfileLength::FourOctets { tag_number: 100000 }),
+                    test_input
+                )
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Fully qualified tag, Vendor ID 0xFFF1/65521, profile number 0xDEED/57069,
@@ -219,14 +162,19 @@ mod tests {
         let test_input: u8 = 42;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric_with_tag(
-            TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::SixOctets {
-                vendor_id: 65521,
-                profile_number: 57069,
-                tag_number: 1
-            }),
-            test_input
-        ));
+        assert_eq!(
+            tlv_writer
+                .write_primitive_with_tag(
+                    TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::SixOctets {
+                        vendor_id: 65521,
+                        profile_number: 57069,
+                        tag_number: 1
+                    }),
+                    test_input
+                )
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Fully qualified tag, Vendor ID 0xFFF1/65521, profile number 0xDEED/57069,
@@ -236,14 +184,19 @@ mod tests {
         let test_input: u8 = 42;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric_with_tag(
-            TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::EightOctets {
-                vendor_id: 65521,
-                profile_number: 57069,
-                tag_number: 2857762541
-            }),
-            test_input
-        ));
+        assert_eq!(
+            tlv_writer
+                .write_primitive_with_tag(
+                    TLVTag::FullyQualifiedProfile(FullyQualifiedProfileLength::EightOctets {
+                        vendor_id: 65521,
+                        profile_number: 57069,
+                        tag_number: 2857762541
+                    }),
+                    test_input
+                )
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -255,7 +208,12 @@ mod tests {
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
 
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -267,7 +225,12 @@ mod tests {
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
 
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -280,7 +243,12 @@ mod tests {
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
 
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -293,7 +261,12 @@ mod tests {
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
 
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -305,7 +278,12 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Single precision floating point infinity (∞)
@@ -314,7 +292,12 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
         assert_eq!(buffer.as_slice(), test_output);
 
@@ -324,7 +307,12 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -336,7 +324,12 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Double precision floating point infinity (∞)
@@ -345,7 +338,12 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
         assert_eq!(buffer.as_slice(), test_output);
 
@@ -355,7 +353,12 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_numeric(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -366,7 +369,12 @@ mod tests {
         let test_input = String::from("Hello!");
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_char_str(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // UTF-8 String, 1-octet length, "Tschüs"
@@ -374,7 +382,12 @@ mod tests {
         let test_input = String::from("Tschüs");
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_char_str(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -385,7 +398,12 @@ mod tests {
         let test_input = Vec::from([0x00, 0x01, 0x02, 0x03, 0x04]);
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_byte_str(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -396,7 +414,12 @@ mod tests {
         let test_input = false;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_bool(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
 
         // Boolean true
@@ -404,7 +427,12 @@ mod tests {
         let test_input = true;
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
-        assert!(tlv_writer.write_bool(test_input));
+        assert_eq!(
+            tlv_writer
+                .write_primitive(test_input)
+                .expect("Write Failed"),
+            test_output.len()
+        );
         assert_eq!(buffer.as_slice(), test_output);
     }
 
@@ -436,24 +464,36 @@ mod tests {
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
 
         let test_input: u64 = 40000000000;
-        assert!(tlv_writer.write_numeric(test_input));
+        tlv_writer
+            .write_primitive(test_input)
+            .expect("Write Failed");
 
         let test_input: u8 = 255;
-        assert!(tlv_writer.write_numeric(test_input));
+        tlv_writer
+            .write_primitive(test_input)
+            .expect("Write Failed");
 
         let test_input: i32 = -904534;
-        assert!(tlv_writer.write_numeric(test_input));
+        tlv_writer
+            .write_primitive(test_input)
+            .expect("Write Failed");
 
         let test_input = true;
-        assert!(tlv_writer.write_bool(test_input));
+        tlv_writer
+            .write_primitive(test_input)
+            .expect("Write Failed");
 
         assert!(tlv_writer.write_null());
 
         let test_input = f64::NEG_INFINITY;
-        assert!(tlv_writer.write_numeric(test_input));
+        tlv_writer
+            .write_primitive(test_input)
+            .expect("Write Failed");
 
         let test_input = String::from("The End.");
-        assert!(tlv_writer.write_char_str(test_input));
+        tlv_writer
+            .write_primitive(test_input)
+            .expect("Write Failed");
 
         assert_eq!(buffer.as_slice(), test_output);
     }
