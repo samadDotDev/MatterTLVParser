@@ -36,27 +36,13 @@ impl<'a> TLVWriter<'a> {
     where
         T: TLVNumeric + TLVNumeric<ValueType = T>,
     {
-        let tag_control = TagControl::from(tag.clone()) as u8;
-        let element_type = value.element_type_byte();
-
-        let mut element_bytes = Vec::new();
-        let control_byte = tag_control | element_type;
-        element_bytes.push(control_byte);
-        let tag_bytes = tag_bytes(tag);
-        element_bytes.extend_from_slice(&tag_bytes);
+        let element_type = value.element_type();
         let val_bytes = T::value_to_bytes(value);
-        element_bytes.extend_from_slice(&val_bytes);
-
-        let written = self.write(element_bytes.as_ref());
-        // Is there a nicer way to unwrap result and return bool early if Err?
-        written.is_ok() && element_bytes.len() == written.unwrap()
+        self.write_element(tag, element_type, &[], &val_bytes)
     }
 
     // TODO: Extract common functionality between byte/char string
     pub fn write_byte_str_with_tag(&mut self, tag: TLVTag, value: Vec<u8>) -> bool {
-        let tag_control = TagControl::from(tag.clone()) as u8;
-        let tag_bytes = tag_bytes(tag);
-
         let val_len = value.len();
 
         let (element_type, len_bytes) = if val_len <= u8::MAX as usize {
@@ -81,15 +67,7 @@ impl<'a> TLVWriter<'a> {
             )
         };
 
-        let mut element_bytes = Vec::new();
-        let control_byte = tag_control | element_type as u8;
-        element_bytes.push(control_byte);
-        element_bytes.extend_from_slice(&tag_bytes);
-        element_bytes.extend_from_slice(len_bytes.as_slice());
-        element_bytes.extend_from_slice(value.as_slice());
-
-        let written = self.write(element_bytes.as_ref());
-        written.is_ok() && element_bytes.len() == written.unwrap()
+        self.write_element(tag, element_type, len_bytes.as_slice(), value.as_slice())
     }
 
     pub fn write_byte_str(&mut self, value: Vec<u8>) -> bool {
@@ -97,9 +75,6 @@ impl<'a> TLVWriter<'a> {
     }
 
     pub fn write_char_str_with_tag(&mut self, tag: TLVTag, value: String) -> bool {
-        let tag_control = TagControl::from(tag.clone()) as u8;
-        let tag_bytes = tag_bytes(tag);
-
         let val_bytes = value.into_bytes();
         let val_len = val_bytes.len();
 
@@ -125,19 +100,53 @@ impl<'a> TLVWriter<'a> {
             )
         };
 
-        let mut element_bytes = Vec::new();
-        let control_byte = tag_control | element_type as u8;
-        element_bytes.push(control_byte);
-        element_bytes.extend_from_slice(&tag_bytes);
-        element_bytes.extend_from_slice(len_bytes.as_slice());
-        element_bytes.extend_from_slice(&val_bytes);
-
-        let written = self.write(element_bytes.as_ref());
-        written.is_ok() && element_bytes.len() == written.unwrap()
+        self.write_element(tag, element_type, len_bytes.as_slice(), &val_bytes)
     }
 
     pub fn write_char_str(&mut self, value: String) -> bool {
         self.write_char_str_with_tag(TLVTag::Anonymous, value)
+    }
+
+    pub fn write_bool_with_tag(&mut self, tag: TLVTag, value: bool) -> bool {
+        let element_type = if value {
+            ElementType::BooleanTrue
+        } else {
+            ElementType::BooleanFalse
+        };
+        self.write_element(tag, element_type, &[], &[])
+    }
+
+    pub fn write_bool(&mut self, value: bool) -> bool {
+        self.write_bool_with_tag(TLVTag::Anonymous, value)
+    }
+
+    pub fn write_null_with_tag(&mut self, tag: TLVTag) -> bool {
+        self.write_element(tag, ElementType::Null, &[], &[])
+    }
+
+    pub fn write_null(&mut self) -> bool {
+        self.write_null_with_tag(TLVTag::Anonymous)
+    }
+
+    fn write_element(
+        &mut self,
+        tag: TLVTag,
+        element_type: ElementType,
+        len_bytes: &[u8],
+        val_bytes: &[u8],
+    ) -> bool {
+        let mut element_bytes = Vec::new();
+        let tag_control = TagControl::from(tag.clone()) as u8;
+        let tag_bytes = tag_bytes(tag);
+        let control_byte = tag_control | element_type as u8;
+        element_bytes.push(control_byte);
+        element_bytes.extend_from_slice(&tag_bytes);
+        element_bytes.extend_from_slice(len_bytes);
+        element_bytes.extend_from_slice(val_bytes);
+
+        let written = self.write(element_bytes.as_ref());
+        // Is there a nicer way to unwrap result and return bool early if Err?
+        written.is_ok() && element_bytes.len() == written.unwrap()
     }
 }
 
@@ -377,6 +386,75 @@ mod tests {
         let mut buffer = Vec::new();
         let mut tlv_writer = TLVWriter::new(buffer.as_mut());
         assert!(tlv_writer.write_byte_str(test_input));
+        assert_eq!(buffer.as_slice(), test_output);
+    }
+
+    #[test]
+    fn test_write_bool() {
+        // Boolean false
+        let test_output = &[0x08];
+        let test_input = false;
+        let mut buffer = Vec::new();
+        let mut tlv_writer = TLVWriter::new(buffer.as_mut());
+        assert!(tlv_writer.write_bool(test_input));
+        assert_eq!(buffer.as_slice(), test_output);
+
+        // Boolean true
+        let test_output = &[0x09];
+        let test_input = true;
+        let mut buffer = Vec::new();
+        let mut tlv_writer = TLVWriter::new(buffer.as_mut());
+        assert!(tlv_writer.write_bool(test_input));
+        assert_eq!(buffer.as_slice(), test_output);
+    }
+
+    #[test]
+    fn test_write_null() {
+        let test_output = &[0x14];
+        let mut buffer = Vec::new();
+        let mut tlv_writer = TLVWriter::new(buffer.as_mut());
+        assert!(tlv_writer.write_null());
+        assert_eq!(buffer.as_slice(), test_output);
+    }
+
+    #[test]
+    fn test_write_sequence() {
+        // Unsigned Integer, 8-octet, value 40000000000
+        // + Unsigned Integer, 1-octet, value 255
+        // + Signed Integer, 4-octet, value -904534
+        // + Boolean true
+        // + Null
+        // + Double precision floating point negative infinity (-∞)
+        // + UTF-8 String, 1-octet length, "The End."
+        let test_output = &[
+            0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00, 0x04, 0xFF, 0x02, 0xAA, 0x32,
+            0xF2, 0xFF, 0x09, 0x14, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xff, 0x0c,
+            0x08, 0x54, 0x68, 0x65, 0x20, 0x45, 0x6e, 0x64, 0x2e,
+        ];
+
+        let mut buffer = Vec::new();
+        let mut tlv_writer = TLVWriter::new(buffer.as_mut());
+
+        let test_input: u64 = 40000000000;
+        assert!(tlv_writer.write_numeric(test_input));
+
+        let test_input: u8 = 255;
+        assert!(tlv_writer.write_numeric(test_input));
+
+        let test_input: i32 = -904534;
+        assert!(tlv_writer.write_numeric(test_input));
+
+        let test_input = true;
+        assert!(tlv_writer.write_bool(test_input));
+
+        assert!(tlv_writer.write_null());
+
+        let test_input = f64::NEG_INFINITY;
+        assert!(tlv_writer.write_numeric(test_input));
+
+        let test_input = String::from("The End.");
+        assert!(tlv_writer.write_char_str(test_input));
+
         assert_eq!(buffer.as_slice(), test_output);
     }
 }
