@@ -26,14 +26,14 @@ impl<'a> TLVWriter<'a> {
 
     pub fn write_primitive<T>(&mut self, value: T) -> Result<usize, TLVError>
     where
-        T: TLVPrimitive + TLVPrimitive<ValueType = T>,
+        T: TLVPrimitive,
     {
         self.write_primitive_with_tag(TLVTag::Anonymous, value)
     }
 
     pub fn write_primitive_with_tag<T>(&mut self, tag: TLVTag, value: T) -> Result<usize, TLVError>
     where
-        T: TLVPrimitive + TLVPrimitive<ValueType = T>,
+        T: TLVPrimitive,
     {
         let (element_type, len_bytes, val_bytes) = T::parse_value(value);
         self.write_element(

@@ -58,11 +58,7 @@ impl TLVReader {
                 let len_field_size = specified_len_type.length_field_size();
                 let (remaining_bytes, value_octets_count) =
                     len_field_size.parse_field_size(remaining_bytes)?;
-                (
-                    remaining_bytes,
-                    len_field_size.len_octets_count(),
-                    value_octets_count,
-                )
+                (remaining_bytes, len_field_size as usize, value_octets_count)
             }
         })
     }

@@ -41,26 +41,26 @@ impl TryFrom<u8> for ElementType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SignedInteger {
-    Int8,
-    Int16,
-    Int32,
-    Int64,
+    Int8 = 1,
+    Int16 = 2,
+    Int32 = 4,
+    Int64 = 8,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum UnsignedInteger {
-    UInt8,
-    UInt16,
-    UInt32,
-    UInt64,
+    UInt8 = 1,
+    UInt16 = 2,
+    UInt32 = 4,
+    UInt64 = 8,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum FloatingPoint {
-    FloatingPointNumber32,
-    FloatingPointNumber64,
+    FloatingPointNumber32 = 4,
+    FloatingPointNumber64 = 8,
 }
 
 #[derive(Debug, PartialEq)]
@@ -219,24 +219,11 @@ impl TryFrom<ElementType> for TLVType {
 impl PredeterminedLenPrimitive {
     pub(crate) fn value_octets_count(&self) -> usize {
         match self {
-            PredeterminedLenPrimitive::SignedInteger(signed_int) => match signed_int {
-                SignedInteger::Int8 => 1,
-                SignedInteger::Int16 => 2,
-                SignedInteger::Int32 => 4,
-                SignedInteger::Int64 => 8,
-            },
-            PredeterminedLenPrimitive::UnsignedInteger(unsigned_int) => match unsigned_int {
-                UnsignedInteger::UInt8 => 1,
-                UnsignedInteger::UInt16 => 2,
-                UnsignedInteger::UInt32 => 4,
-                UnsignedInteger::UInt64 => 8,
-            },
+            PredeterminedLenPrimitive::SignedInteger(signed_int) => *signed_int as usize,
+            PredeterminedLenPrimitive::UnsignedInteger(unsigned_int) => *unsigned_int as usize,
             PredeterminedLenPrimitive::Boolean(_) => 0,
             PredeterminedLenPrimitive::FloatingPointNumber(floating_point) => {
-                match floating_point {
-                    FloatingPoint::FloatingPointNumber32 => 4,
-                    FloatingPoint::FloatingPointNumber64 => 8,
-                }
+                *floating_point as usize
             }
             PredeterminedLenPrimitive::Null => 0,
         }
@@ -274,27 +261,17 @@ impl SpecifiedLenPrimitive {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
-#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TLVFieldSize {
-    OneOctet = 0,
-    TwoOctets = 1,
-    FourOctets = 2,
-    EightOctets = 3,
+    OneOctet = 1,
+    TwoOctets = 2,
+    FourOctets = 4,
+    EightOctets = 8,
 }
 
 impl TLVFieldSize {
-    pub fn len_octets_count(&self) -> usize {
-        match self {
-            TLVFieldSize::OneOctet => 1,
-            TLVFieldSize::TwoOctets => 2,
-            TLVFieldSize::FourOctets => 4,
-            TLVFieldSize::EightOctets => 8,
-        }
-    }
-
     pub fn parse_field_size<'a>(&self, bytes: &'a [u8]) -> Result<(&'a [u8], usize), TLVError> {
-        let len_octets_count = self.len_octets_count();
+        let len_octets_count = *self as usize;
         if len_octets_count > bytes.len() {
             return Err(TLVError::UnderRun);
         }
@@ -328,24 +305,12 @@ impl TLVFieldSize {
     }
 }
 
-impl TryFrom<u8> for TLVFieldSize {
-    type Error = TLVError;
-
-    fn try_from(field_size: u8) -> Result<Self, Self::Error> {
-        let field_size = Self::from_u8(field_size).ok_or(TLVError::InvalidType)?;
-        Ok(field_size)
-    }
-}
-
 pub trait TLVPrimitive {
-    type ValueType;
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>);
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>);
 }
 
 impl TLVPrimitive for String {
-    type ValueType = String;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let val_bytes = value.into_bytes();
         let val_len = val_bytes.len();
 
@@ -375,9 +340,7 @@ impl TLVPrimitive for String {
 }
 
 impl TLVPrimitive for Vec<u8> {
-    type ValueType = Vec<u8>;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let val_len = value.len();
 
         let (element_type, len_bytes) = if val_len <= u8::MAX as usize {
@@ -407,9 +370,7 @@ impl TLVPrimitive for Vec<u8> {
 }
 
 impl TLVPrimitive for bool {
-    type ValueType = bool;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = if value {
             ElementType::BooleanTrue
         } else {
@@ -420,9 +381,7 @@ impl TLVPrimitive for bool {
 }
 
 impl TLVPrimitive for u8 {
-    type ValueType = u8;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::UInt8;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -430,9 +389,7 @@ impl TLVPrimitive for u8 {
 }
 
 impl TLVPrimitive for u16 {
-    type ValueType = u16;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::UInt16;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -440,9 +397,7 @@ impl TLVPrimitive for u16 {
 }
 
 impl TLVPrimitive for u32 {
-    type ValueType = u32;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::UInt32;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -450,9 +405,7 @@ impl TLVPrimitive for u32 {
 }
 
 impl TLVPrimitive for u64 {
-    type ValueType = u64;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::UInt64;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -460,9 +413,7 @@ impl TLVPrimitive for u64 {
 }
 
 impl TLVPrimitive for i8 {
-    type ValueType = i8;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::Int8;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -470,9 +421,7 @@ impl TLVPrimitive for i8 {
 }
 
 impl TLVPrimitive for i16 {
-    type ValueType = i16;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::Int16;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -480,9 +429,7 @@ impl TLVPrimitive for i16 {
 }
 
 impl TLVPrimitive for i32 {
-    type ValueType = i32;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::Int32;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -490,9 +437,7 @@ impl TLVPrimitive for i32 {
 }
 
 impl TLVPrimitive for i64 {
-    type ValueType = i64;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::Int64;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -500,9 +445,7 @@ impl TLVPrimitive for i64 {
 }
 
 impl TLVPrimitive for f32 {
-    type ValueType = f32;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::FloatingPointNumber32;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
@@ -510,9 +453,7 @@ impl TLVPrimitive for f32 {
 }
 
 impl TLVPrimitive for f64 {
-    type ValueType = f64;
-
-    fn parse_value(value: Self::ValueType) -> (ElementType, Vec<u8>, Vec<u8>) {
+    fn parse_value(value: Self) -> (ElementType, Vec<u8>, Vec<u8>) {
         let element_type = ElementType::FloatingPointNumber64;
         let val_bytes = value.to_le_bytes().to_vec();
         (element_type, vec![], val_bytes)
