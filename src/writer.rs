@@ -386,7 +386,7 @@ mod tests {
 
         // Big Endian version of above value, should be recognized as 1.9035985687838486e+185 instead
         let test_output = &[0x0b, 0x40, 0x31, 0xe6, 0x66, 0x66, 0x66, 0x66, 0x66];
-        let test_input: f64 = 1.9035985687838486e+185;
+        let test_input: f64 = 1.903_598_568_783_848_6e185;
         assert_eq!(test_input.encode_tlv(), test_output);
 
         // Double precision floating point infinity (∞)
