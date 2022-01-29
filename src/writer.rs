@@ -310,6 +310,51 @@ mod tests {
     }
 
     #[test]
+    fn test_write_i8() {
+        let test_output = &[0x00, 0x81]; // Signed Integer, 1-octet, value -127
+        let test_input: i8 = -127;
+        assert_eq!(test_input.encode_tlv(), test_output);
+    }
+
+    #[test]
+    fn test_write_i16() {
+        let test_output = &[0x01, 0x2A, 0xA5]; // Unsigned Integer, 2-octet, value -23254
+        let test_input: i16 = -23254;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 10917 instead
+        let test_output = &[0x01, 0xA5, 0x2A];
+        let test_input: i16 = 10917;
+        assert_eq!(test_input.encode_tlv(), test_output);
+    }
+
+    #[test]
+    fn test_write_i32() {
+        // Unsigned Integer, 4-octet, value -596651790
+        let test_output = &[0x02, 0xF2, 0xD0, 0x6F, 0xDC];
+        let test_input: i32 = -596651790;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as -221220900 instead
+        let test_output = &[0x02, 0xDC, 0x6F, 0xD0, 0xF2];
+        let test_input: i32 = -221220900;
+        assert_eq!(test_input.encode_tlv(), test_output);
+    }
+
+    #[test]
+    fn test_write_i64() {
+        // Unsigned Integer, 8-octet, value 40000000000
+        let test_output = &[0x03, 0x00, 0x70, 0xD0, 0xAF, 0xF6, 0xFF, 0xFF, 0xFF];
+        let test_input: i64 = -40000000000;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 8129190802795527936 instead
+        let test_output = &[0x03, 0x00, 0xFF, 0xFF, 0xFF, 0xF6, 0xAF, 0xD0, 0x70];
+        let test_input: i64 = 8129190802795527936;
+        assert_eq!(test_input.encode_tlv(), test_output);
+    }
+
+    #[test]
     fn test_write_f32() {
         // Single precision floating point 17.9
         let test_output = &[0x0a, 0x33, 0x33, 0x8f, 0x41];
