@@ -273,24 +273,39 @@ mod tests {
 
     #[test]
     fn test_write_u16() {
-        let test_output = &[0x05, 0xFF, 0xFF]; // Unsigned Integer, 2-octet, value 65535
-        let test_input: u16 = 65535;
+        let test_output = &[0x05, 0xFA, 0xFF]; // Unsigned Integer, 2-octet, value 65530
+        let test_input: u16 = 65530;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 64255 instead
+        let test_output = &[0x05, 0xFF, 0xFA];
+        let test_input: u16 = 64255;
         assert_eq!(test_input.encode_tlv(), test_output);
     }
 
     #[test]
     fn test_write_u32() {
         // Unsigned Integer, 4-octet, value 237998115
-        let test_output = &[0x06, 0x23, 0x90, 0x2f, 0x0E];
+        let test_output = &[0x06, 0x23, 0x90, 0x2F, 0x0E];
         let test_input: u32 = 237998115;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 596651790 instead
+        let test_output = &[0x06, 0x0E, 0x2F, 0x90, 0x23];
+        let test_input: u32 = 596651790;
         assert_eq!(test_input.encode_tlv(), test_output);
     }
 
     #[test]
     fn test_write_u64() {
         // Unsigned Integer, 8-octet, value 40000000000
-        let test_output = &[0x07, 0x00, 0x90, 0x2f, 0x50, 0x09, 0x00, 0x00, 0x00];
+        let test_output = &[0x07, 0x00, 0x90, 0x2F, 0x50, 0x09, 0x00, 0x00, 0x00];
         let test_input: u64 = 40000000000;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 2419019785 instead
+        let test_output = &[0x07, 0x09, 0x50, 0x2F, 0x90, 0x00, 0x00, 0x00, 0x00];
+        let test_input: u64 = 2419019785;
         assert_eq!(test_input.encode_tlv(), test_output);
     }
 
@@ -299,6 +314,11 @@ mod tests {
         // Single precision floating point 17.9
         let test_output = &[0x0a, 0x33, 0x33, 0x8f, 0x41];
         let test_input: f32 = 17.9;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 4.1806974e-8 instead
+        let test_output = &[0x0a, 0x41, 0x8f, 0x33, 0x33];
+        let test_input: f32 = 4.1806974e-8;
         assert_eq!(test_input.encode_tlv(), test_output);
 
         // Single precision floating point infinity (∞)
@@ -317,6 +337,11 @@ mod tests {
         // Double precision floating point 17.9
         let test_output = &[0x0b, 0x66, 0x66, 0x66, 0x66, 0x66, 0xe6, 0x31, 0x40];
         let test_input: f64 = 17.9;
+        assert_eq!(test_input.encode_tlv(), test_output);
+
+        // Big Endian version of above value, should be recognized as 1.9035985687838486e+185 instead
+        let test_output = &[0x0b, 0x40, 0x31, 0xe6, 0x66, 0x66, 0x66, 0x66, 0x66];
+        let test_input: f64 = 1.9035985687838486e+185;
         assert_eq!(test_input.encode_tlv(), test_output);
 
         // Double precision floating point infinity (∞)
